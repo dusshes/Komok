@@ -1,0 +1,15 @@
+<Solution>
+  <Project Path="Komok/Komok.csproj" />
+  <Folder Name="/docs/">
+    <File Path="docs/README.md" />
+    <File Path="docs/current-work.md" />
+    <File Path="docs/decisions.md" />
+    <File Path="docs/product.md" />
+    <File Path="docs/workflow.md" />
+  </Folder>
+  <Folder Name="/docs/features/">
+    <File Path="docs/features/catalog.md" />
+    <File Path="docs/features/listings.md" />
+    <File Path="docs/features/orders.md" />
+  </Folder>
+</Solution>
