@@ -8,6 +8,7 @@
     <File Path="docs/workflow.md" />
   </Folder>
   <Folder Name="/docs/features/">
+    <File Path="docs/features/accounts-and-stores.md" />
     <File Path="docs/features/catalog.md" />
     <File Path="docs/features/listings.md" />
     <File Path="docs/features/orders.md" />
