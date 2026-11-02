@@ -1,0 +1,81 @@
+name: Deploy Komok to 1GB
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-komok-1gb
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Publish Komok
+        run: dotnet publish ./Komok/Komok.csproj --configuration Release --output ./publish
+
+      - name: Add database connection to IIS configuration
+        env:
+          KOMOK_TEST_DATABASE: ${{ secrets.KOMOK_TEST_DATABASE }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          connection = os.environ.get("KOMOK_TEST_DATABASE", "")
+          if not connection:
+              raise SystemExit("GitHub Secret KOMOK_TEST_DATABASE is required")
+
+          config_path = Path("publish/web.config")
+          tree = ET.parse(config_path)
+          aspnet = tree.find(".//aspNetCore")
+          if aspnet is None:
+              raise SystemExit("publish/web.config does not contain aspNetCore configuration")
+
+          environment = aspnet.find("environmentVariables")
+          if environment is None:
+              environment = ET.SubElement(aspnet, "environmentVariables")
+
+          variable = next(
+              (item for item in environment.findall("environmentVariable")
+               if item.get("name") == "KOMOK_TEST_DATABASE"),
+              None,
+          )
+          if variable is None:
+              variable = ET.SubElement(environment, "environmentVariable")
+          variable.set("name", "KOMOK_TEST_DATABASE")
+          variable.set("value", connection)
+          ET.indent(tree, space="  ")
+          tree.write(config_path, encoding="utf-8", xml_declaration=True)
+          PY
+
+      - name: Deploy to 1GB over FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.ONEGB_FTP_SERVER }}
+          username: ${{ secrets.ONEGB_FTP_USERNAME }}
+          password: ${{ secrets.ONEGB_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          local-dir: ./publish/
+          server-dir: ./http/
