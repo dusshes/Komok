@@ -1,5 +1,7 @@
 .vs/
 **/bin/
 **/obj/
+**/wwwroot/
+.artifacts/
 *.user
 *.suo

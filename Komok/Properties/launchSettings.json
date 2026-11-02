@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Komok": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:58907;http://localhost:58908"
+    }
+  }
+}
