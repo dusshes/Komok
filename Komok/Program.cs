@@ -23,5 +23,6 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapTextApi();
+app.MapText2Api();
 
 app.Run();

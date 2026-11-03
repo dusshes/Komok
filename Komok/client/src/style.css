@@ -35,3 +35,4 @@ input:focus { outline: 3px solid #34724630; border-color: #347246; }
 button { margin-top: 14px; padding: 12px 18px; border: 0; border-radius: 9px; background: #28653b; color: white; font: inherit; font-weight: 650; cursor: pointer; }
 button:disabled { cursor: wait; opacity: .6; }
 .status { min-height: 24px; margin: 18px 0 0; color: #566255; font-size: 14px; }
+.divider { margin: 30px 0; border: 0; border-top: 1px solid #dce2d8; }

@@ -2,68 +2,126 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 type TextValue = { txt: string }
+type FioValue = { fio: string }
+type ApiError = { message?: string }
 
 export default function App() {
-  const [value, setValue] = useState('')
-  const [status, setStatus] = useState('Загружаем значение из PostgreSQL…')
-  const [saving, setSaving] = useState(false)
+  const [textValue, setTextValue] = useState('')
+  const [fioValue, setFioValue] = useState('')
+  const [textStatus, setTextStatus] = useState('Загружаем значение из PostgreSQL…')
+  const [fioStatus, setFioStatus] = useState('Загружаем значение из PostgreSQL…')
+  const [savingText, setSavingText] = useState(false)
+  const [savingFio, setSavingFio] = useState(false)
 
   useEffect(() => {
     fetch('/api/text')
       .then(async (response) => {
-        if (!response.ok) throw new Error('Не удалось прочитать значение из базы.')
+        if (!response.ok) throw new Error('Не удалось прочитать Text.Txt из базы.')
         return (await response.json()) as TextValue
       })
       .then((data) => {
-        setValue(data.txt)
-        setStatus('Значение загружено из PostgreSQL')
+        setTextValue(data.txt)
+        setTextStatus('Загружено из PostgreSQL')
       })
-      .catch((error: Error) => setStatus(error.message))
+      .catch((error: Error) => setTextStatus(error.message))
+
+    fetch('/api/text2/1')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Не удалось прочитать Text2.fio из базы.')
+        return (await response.json()) as FioValue
+      })
+      .then((data) => {
+        setFioValue(data.fio)
+        setFioStatus('Загружено из PostgreSQL')
+      })
+      .catch((error: Error) => setFioStatus(error.message))
   }, [])
 
-  async function save(event: FormEvent<HTMLFormElement>) {
+  async function saveText(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSaving(true)
-    setStatus('Сохраняем…')
+    setSavingText(true)
+    setTextStatus('Сохраняем…')
     try {
       const response = await fetch('/api/text', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txt: value }),
+        body: JSON.stringify({ txt: textValue }),
       })
       if (!response.ok) {
-        const error = (await response.json()) as { message?: string }
-        throw new Error(error.message ?? 'Не удалось сохранить значение.')
+        const error = (await response.json()) as ApiError
+        throw new Error(error.message ?? 'Не удалось сохранить Text.Txt.')
       }
       const data = (await response.json()) as TextValue
-      setValue(data.txt)
-      setStatus('Сохранено в PostgreSQL')
+      setTextValue(data.txt)
+      setTextStatus('Сохранено в PostgreSQL')
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Не удалось сохранить значение.')
+      setTextStatus(error instanceof Error ? error.message : 'Не удалось сохранить Text.Txt.')
     } finally {
-      setSaving(false)
+      setSavingText(false)
+    }
+  }
+
+  async function saveFio(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSavingFio(true)
+    setFioStatus('Сохраняем…')
+    try {
+      const response = await fetch('/api/text2/1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fio: fioValue }),
+      })
+      if (!response.ok) {
+        const error = (await response.json()) as ApiError
+        throw new Error(error.message ?? 'Не удалось сохранить Text2.fio.')
+      }
+      const data = (await response.json()) as FioValue
+      setFioValue(data.fio)
+      setFioStatus('Сохранено в PostgreSQL')
+    } catch (error) {
+      setFioStatus(error instanceof Error ? error.message : 'Не удалось сохранить Text2.fio.')
+    } finally {
+      setSavingFio(false)
     }
   }
 
   return (
     <main className="card">
       <div className="eyebrow">Komok · приложение</div>
-      <h1>Редактирование записи</h1>
+      <h1>Редактирование записей</h1>
       <p className="description">React и TypeScript · ASP.NET Core · Entity Framework Core · PostgreSQL</p>
-      <form onSubmit={save}>
+
+      <form onSubmit={saveText}>
         <label htmlFor="txt">Значение поля Text.Txt</label>
         <input
           id="txt"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
+          value={textValue}
+          onChange={(event) => setTextValue(event.target.value)}
           maxLength={500}
           required
         />
-        <button type="submit" disabled={saving || value.trim().length === 0}>
-          {saving ? 'Сохраняем…' : 'Сохранить'}
+        <button type="submit" disabled={savingText || textValue.trim().length === 0}>
+          {savingText ? 'Сохраняем…' : 'Сохранить Text.Txt'}
         </button>
       </form>
-      <p className="status" role="status">{status}</p>
+      <p className="status" role="status">{textStatus}</p>
+
+      <hr className="divider" />
+
+      <form onSubmit={saveFio}>
+        <label htmlFor="fio">Значение Text2.fio (строка fio1)</label>
+        <input
+          id="fio"
+          value={fioValue}
+          onChange={(event) => setFioValue(event.target.value)}
+          maxLength={500}
+          required
+        />
+        <button type="submit" disabled={savingFio || fioValue.trim().length === 0}>
+          {savingFio ? 'Сохраняем…' : 'Сохранить fio1'}
+        </button>
+      </form>
+      <p className="status" role="status">{fioStatus}</p>
     </main>
   )
 }

@@ -21,6 +21,42 @@ namespace Komok.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Komok.Models.Text2Record", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Fio")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("fio");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Text2", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Fio = "fio1"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Fio = "fio2"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Fio = "fio3"
+                        });
+                });
+
             modelBuilder.Entity("Komok.Models.TextRecord", b =>
                 {
                     b.Property<string>("Txt")
