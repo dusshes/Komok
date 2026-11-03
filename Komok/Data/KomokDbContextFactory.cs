@@ -7,8 +7,16 @@ public sealed class KomokDbContextFactory : IDesignTimeDbContextFactory<KomokDbC
 {
     public KomokDbContext CreateDbContext(string[] args)
     {
+        var basePath = Directory.GetCurrentDirectory();
+        var projectPath = Path.Combine(basePath, "Komok");
+        if (!File.Exists(Path.Combine(basePath, "Komok.csproj"))
+            && File.Exists(Path.Combine(projectPath, "Komok.csproj")))
+        {
+            basePath = projectPath;
+        }
+
         var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
+            .SetBasePath(basePath)
             .AddJsonFile("appsettings.json", optional: true)
             .AddJsonFile("appsettings.Development.json", optional: true)
             .AddEnvironmentVariables()
