@@ -6,3 +6,5 @@
 *.user
 *.suo
 **/node_modules/
+**/appsettings.Development.json
+**/appsettings.Production.json

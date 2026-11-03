@@ -3,13 +3,11 @@ using Komok.Models;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
-var connectionString = builder.Configuration.GetConnectionString("KomokTest")
-    ?? Environment.GetEnvironmentVariable("KOMOK_TEST_DATABASE");
+var connectionString = builder.Configuration.GetConnectionString("KomokTest");
 
 if (string.IsNullOrWhiteSpace(connectionString))
 {
-    throw new InvalidOperationException(
-        "Set ConnectionStrings:KomokTest or the KOMOK_TEST_DATABASE environment variable.");
+    throw new InvalidOperationException("Set ConnectionStrings:KomokTest in appsettings.json or an environment-specific appsettings file.");
 }
 
 builder.Services.AddDbContext<TestDbContext>(options => options.UseNpgsql(connectionString));

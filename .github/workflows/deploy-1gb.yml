@@ -33,18 +33,40 @@ jobs:
       - name: Publish Komok
         run: dotnet publish ./Komok/Komok.csproj --configuration Release --output ./publish
 
-      - name: Add database connection to IIS configuration
+      - name: Write production database settings
         env:
           KOMOK_TEST_DATABASE: ${{ secrets.KOMOK_TEST_DATABASE }}
         run: |
           python3 - <<'PY'
+          import json
           import os
+          import socket
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
           connection = os.environ.get("KOMOK_TEST_DATABASE", "")
           if not connection:
               raise SystemExit("GitHub Secret KOMOK_TEST_DATABASE is required")
+
+          entries = dict(
+              (key.strip().lower(), value.strip())
+              for part in connection.split(";")
+              if "=" in part
+              for key, value in [part.split("=", 1)]
+          )
+          host = entries.get("host") or entries.get("server")
+          if not host:
+              raise SystemExit("KOMOK_TEST_DATABASE must contain a Host value")
+          try:
+              socket.getaddrinfo(host, None)
+          except OSError:
+              raise SystemExit("The database Host in KOMOK_TEST_DATABASE cannot be resolved")
+
+          settings_path = Path("publish/appsettings.Production.json")
+          settings_path.write_text(
+              json.dumps({"ConnectionStrings": {"KomokTest": connection}}, indent=2) + "\n",
+              encoding="utf-8",
+          )
 
           config_path = Path("publish/web.config")
           tree = ET.parse(config_path)
@@ -55,24 +77,9 @@ jobs:
           aspnet.set("stdoutLogEnabled", "true")
           aspnet.set("stdoutLogFile", r".\logs\stdout")
           Path("publish/logs").mkdir(exist_ok=True)
-
-          environment = aspnet.find("environmentVariables")
-          if environment is None:
-              environment = ET.SubElement(aspnet, "environmentVariables")
-
-          variable = next(
-              (item for item in environment.findall("environmentVariable")
-               if item.get("name") == "KOMOK_TEST_DATABASE"),
-              None,
-          )
-          if variable is None:
-              variable = ET.SubElement(environment, "environmentVariable")
-          variable.set("name", "KOMOK_TEST_DATABASE")
-          variable.set("value", connection)
           ET.indent(tree, space="  ")
           tree.write(config_path, encoding="utf-8", xml_declaration=True)
           PY
-
       - name: Prepare FTP deployment markers
         run: |
           mkdir -p ./offline ./empty
