@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
-type TestValue = { txt: string }
+type TextValue = { txt: string }
 
 export default function App() {
   const [value, setValue] = useState('')
@@ -9,10 +9,10 @@ export default function App() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    fetch('/api/test')
+    fetch('/api/text')
       .then(async (response) => {
         if (!response.ok) throw new Error('Не удалось прочитать значение из базы.')
-        return (await response.json()) as TestValue
+        return (await response.json()) as TextValue
       })
       .then((data) => {
         setValue(data.txt)
@@ -26,7 +26,7 @@ export default function App() {
     setSaving(true)
     setStatus('Сохраняем…')
     try {
-      const response = await fetch('/api/test', {
+      const response = await fetch('/api/text', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ txt: value }),
@@ -35,7 +35,7 @@ export default function App() {
         const error = (await response.json()) as { message?: string }
         throw new Error(error.message ?? 'Не удалось сохранить значение.')
       }
-      const data = (await response.json()) as TestValue
+      const data = (await response.json()) as TextValue
       setValue(data.txt)
       setStatus('Сохранено в PostgreSQL')
     } catch (error) {
@@ -47,11 +47,11 @@ export default function App() {
 
   return (
     <main className="card">
-      <div className="eyebrow">Komok · проверка стека</div>
+      <div className="eyebrow">Komok · приложение</div>
       <h1>Редактирование записи</h1>
       <p className="description">React и TypeScript · ASP.NET Core · Entity Framework Core · PostgreSQL</p>
       <form onSubmit={save}>
-        <label htmlFor="txt">Значение поля Test.Txt</label>
+        <label htmlFor="txt">Значение поля Text.Txt</label>
         <input
           id="txt"
           value={value}

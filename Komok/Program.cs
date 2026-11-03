@@ -3,53 +3,69 @@ using Komok.Models;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
-var connectionString = builder.Configuration.GetConnectionString("KomokTest");
+var connectionString = builder.Configuration.GetConnectionString("KomokDatabase");
 
 if (string.IsNullOrWhiteSpace(connectionString))
 {
-    throw new InvalidOperationException("Set ConnectionStrings:KomokTest in appsettings.json or an environment-specific appsettings file.");
+    throw new InvalidOperationException("Set ConnectionStrings:KomokDatabase in an appsettings file.");
 }
 
-builder.Services.AddDbContext<TestDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<KomokDbContext>(options => options.UseNpgsql(connectionString));
 var app = builder.Build();
+const string initialValue = "Komok";
+const string previousInitialValue = "ТестТест";
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<TestDbContext>();
+    var db = scope.ServiceProvider.GetRequiredService<KomokDbContext>();
+
+    await db.Database.ExecuteSqlRawAsync("""
+        DO $$
+        BEGIN
+            IF to_regclass('"Text"') IS NULL AND to_regclass('"Test"') IS NOT NULL THEN
+                ALTER TABLE "Test" RENAME TO "Text";
+            END IF;
+        END
+        $$;
+        """);
+
     await db.Database.EnsureCreatedAsync();
-    if (!await db.Tests.AnyAsync())
+    await db.Database.ExecuteSqlInterpolatedAsync(
+        $"UPDATE \"Text\" SET \"Txt\" = {initialValue} WHERE \"Txt\" = {previousInitialValue}");
+
+    if (!await db.Texts.AnyAsync())
     {
-        await db.Database.ExecuteSqlRawAsync(
-            "INSERT INTO \"Test\" (\"Txt\") VALUES ('ТестТест')");
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO \"Text\" (\"Txt\") VALUES ({initialValue})");
     }
 }
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/test", async (TestDbContext db) =>
+app.MapGet("/api/text", async (KomokDbContext db) =>
 {
-    var record = await db.Tests.SingleOrDefaultAsync();
+    var record = await db.Texts.SingleOrDefaultAsync();
     return record is null
-        ? Results.Problem("В таблице Test пока нет строки.")
+        ? Results.Problem("В таблице Text пока нет строки.")
         : Results.Ok(new { txt = record.Txt });
 });
 
-app.MapPut("/api/test", async (TestValueUpdate update, TestDbContext db) =>
+app.MapPut("/api/text", async (TextUpdate update, KomokDbContext db) =>
 {
     var newValue = update.Txt.Trim();
     if (string.IsNullOrWhiteSpace(newValue) || newValue.Length > 500)
         return Results.BadRequest(new { message = "Значение должно содержать от 1 до 500 символов." });
 
-    var record = await db.Tests.SingleOrDefaultAsync();
+    var record = await db.Texts.SingleOrDefaultAsync();
     if (record is null)
     {
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"INSERT INTO \"Test\" (\"Txt\") VALUES ({newValue})");
+            $"INSERT INTO \"Text\" (\"Txt\") VALUES ({newValue})");
     }
     else
     {
-        await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"Test\" SET \"Txt\" = {newValue}");
+        await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"Text\" SET \"Txt\" = {newValue}");
     }
 
     return Results.Ok(new { txt = newValue });

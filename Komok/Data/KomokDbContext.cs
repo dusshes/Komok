@@ -3,15 +3,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Komok.Data;
 
-public sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
+public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options) : DbContext(options)
 {
-    public DbSet<TestRecord> Tests => Set<TestRecord>();
+    public DbSet<TextRecord> Texts => Set<TextRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<TestRecord>(entity =>
+        modelBuilder.Entity<TextRecord>(entity =>
         {
-            entity.ToTable("Test");
+            entity.ToTable("Text");
             entity.HasNoKey();
             entity.Property(row => row.Txt).HasColumnName("Txt").HasMaxLength(500);
         });

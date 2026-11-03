@@ -35,7 +35,7 @@ jobs:
 
       - name: Write production database settings
         env:
-          KOMOK_TEST_DATABASE: ${{ secrets.KOMOK_TEST_DATABASE }}
+          KOMOK_DATABASE: ${{ secrets.KOMOK_DATABASE }}
         run: |
           python3 - <<'PY'
           import json
@@ -44,9 +44,9 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
-          connection = os.environ.get("KOMOK_TEST_DATABASE", "")
+          connection = os.environ.get("KOMOK_DATABASE", "")
           if not connection:
-              raise SystemExit("GitHub Secret KOMOK_TEST_DATABASE is required")
+              raise SystemExit("GitHub Secret KOMOK_DATABASE is required")
 
           entries = dict(
               (key.strip().lower(), value.strip())
@@ -56,15 +56,15 @@ jobs:
           )
           host = entries.get("host") or entries.get("server")
           if not host:
-              raise SystemExit("KOMOK_TEST_DATABASE must contain a Host value")
+              raise SystemExit("KOMOK_DATABASE must contain a Host value")
           try:
               socket.getaddrinfo(host, None)
           except OSError:
-              raise SystemExit("The database Host in KOMOK_TEST_DATABASE cannot be resolved")
+              raise SystemExit("The database Host in KOMOK_DATABASE cannot be resolved")
 
           settings_path = Path("publish/appsettings.Production.json")
           settings_path.write_text(
-              json.dumps({"ConnectionStrings": {"KomokTest": connection}}, indent=2) + "\n",
+              json.dumps({"ConnectionStrings": {"KomokDatabase": connection}}, indent=2) + "\n",
               encoding="utf-8",
           )
 
