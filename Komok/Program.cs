@@ -13,25 +13,11 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContext<KomokDbContext>(options => options.UseNpgsql(connectionString));
 var app = builder.Build();
 const string initialValue = "Komok";
-const string previousInitialValue = "ТестТест";
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<KomokDbContext>();
-
-    await db.Database.ExecuteSqlRawAsync("""
-        DO $$
-        BEGIN
-            IF to_regclass('"Text"') IS NULL AND to_regclass('"Test"') IS NOT NULL THEN
-                ALTER TABLE "Test" RENAME TO "Text";
-            END IF;
-        END
-        $$;
-        """);
-
     await db.Database.EnsureCreatedAsync();
-    await db.Database.ExecuteSqlInterpolatedAsync(
-        $"UPDATE \"Text\" SET \"Txt\" = {initialValue} WHERE \"Txt\" = {previousInitialValue}");
 
     if (!await db.Texts.AnyAsync())
     {
