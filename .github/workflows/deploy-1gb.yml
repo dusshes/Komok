@@ -73,6 +73,25 @@ jobs:
           tree.write(config_path, encoding="utf-8", xml_declaration=True)
           PY
 
+      - name: Prepare FTP deployment markers
+        run: |
+          mkdir -p ./offline ./empty
+          printf '%s\n' '<html><body>Сайт обновляется, зайдите через минуту.</body></html>' > ./offline/app_offline.htm
+
+      - name: Stop site before updating locked assemblies
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.ONEGB_FTP_SERVER }}
+          username: ${{ secrets.ONEGB_FTP_USERNAME }}
+          password: ${{ secrets.ONEGB_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          local-dir: ./offline/
+          server-dir: ./http/
+          state-name: .ftp-deploy-offline-sync-state.json
+
+      - name: Wait for IIS to release application files
+        run: sleep 10
       - name: Deploy to 1GB over FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
@@ -83,3 +102,14 @@ jobs:
           port: 21
           local-dir: ./publish/
           server-dir: ./http/
+      - name: Bring site online after deployment
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.ONEGB_FTP_SERVER }}
+          username: ${{ secrets.ONEGB_FTP_USERNAME }}
+          password: ${{ secrets.ONEGB_FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          local-dir: ./empty/
+          server-dir: ./http/
+          state-name: .ftp-deploy-offline-sync-state.json
