@@ -12,18 +12,11 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 builder.Services.AddDbContext<KomokDbContext>(options => options.UseNpgsql(connectionString));
 var app = builder.Build();
-const string initialValue = "Komok";
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<KomokDbContext>();
-    await db.Database.EnsureCreatedAsync();
-
-    if (!await db.Texts.AnyAsync())
-    {
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"INSERT INTO \"Text\" (\"Txt\") VALUES ({initialValue})");
-    }
+    await db.Database.MigrateAsync();
 }
 
 app.UseDefaultFiles();
