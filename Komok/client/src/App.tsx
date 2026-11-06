@@ -27,6 +27,7 @@ type Listing = {
   listingStatus: string
   inventoryStatus: string
   reservedUntil: string | null
+  timeZoneId: string
   soldPrice: number | null
   payoutAmount: number | null
   payoutStatus: string
@@ -42,6 +43,7 @@ type AdminProduct = {
   listingStatus: string
   inventoryStatus: string
   reservedUntil: string | null
+  timeZoneId: string
   sellerEmail: string
   sellerMessenger: string
   sellerMessengerContact: string
@@ -586,6 +588,7 @@ export default function App() {
     }
   }
 
+  const catalogTimeZoneId = stores.find((store) => store.id === storeId)?.timeZoneId ?? '+00:00'
 
   return (
     <main className="site-shell">
@@ -617,7 +620,7 @@ export default function App() {
           <div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}>
             <div className="product-visual"><span className="product-category">Комок · находка</span><span className="product-symbol">✳</span></div>
             <div className="product-info"><h3>{product.title}</h3><p>{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
-              {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil)}</span> : <span className="badge">Продано</span>}
+              {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
             </div>
             {bookingProduct?.id === product.id && <form className="booking-form" onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
               <h4>Когда вы приедете?</h4>
@@ -657,7 +660,7 @@ export default function App() {
         <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => setView('new-listing')}>＋ Подать заявку</button></div>
         {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => setView('new-listing')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
           <div><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3>{listing.title}</h3><p>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
-            {listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil)}</p>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
+            {listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
           </div>
           <div className="button-row">{listing.listingStatus === 'AwaitingDelivery' && <><button className="button button-small" onClick={() => void listingAction(listing.id, 'delivery')}>Передал в доставку</button><button className="button-quiet" onClick={() => void listingAction(listing.id, 'cancel')}>Отменить заявку</button></>}</div>
         </article>)}</div>}
@@ -759,7 +762,7 @@ function AdminProductCard({ product, onChanged, onNotice }: {
 
   return <article className="admin-product panel">
     <div className="admin-product-title"><div><span className="badge">{listingLabels[product.listingStatus] ?? product.listingStatus} · {product.inventoryStatus}</span><h3>{product.title}</h3><p className="muted">Продавец: {product.sellerEmail} · {product.sellerMessenger}: {product.sellerMessengerContact}</p></div><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong></div>
-    {product.inventoryStatus === 'Reserved' && <p className="muted">Бронь до {formatDate(product.reservedUntil ?? null)} · прибытие {formatDate(product.arrivalAt)}{product.buyerName ? ` · ${product.buyerName}` : ''}{product.buyerMessenger && product.buyerMessengerContact ? ` · ${product.buyerMessenger}: ${product.buyerMessengerContact}` : ''}</p>}
+    {product.inventoryStatus === 'Reserved' && <p className="muted">Бронь до {formatDate(product.reservedUntil ?? null, product.timeZoneId)} · прибытие {formatDate(product.arrivalAt, product.timeZoneId)}{product.buyerName ? ` · ${product.buyerName}` : ''}{product.buyerMessenger && product.buyerMessengerContact ? ` · ${product.buyerMessenger}: ${product.buyerMessengerContact}` : ''}</p>}
     {['Submitted', 'NeedsRevision'].includes(product.listingStatus) && <form className="form-stack review-fields" onSubmit={approveListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
       <label>Название<input name="title" required value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>Описание<textarea name="description" required rows={3} value={description} maxLength={5000} onChange={(event) => setDescription(event.target.value)} /></label>
@@ -802,6 +805,12 @@ const utcOffsetOptions = Array.from({ length: (14 * 60 + 12 * 60) / 15 + 1 }, (_
   return { value, label: `UTC${sign}${String(Math.floor(absoluteMinutes / 60))}:${String(absoluteMinutes % 60).padStart(2, '0')}${location ? ` — ${location}` : ''}` }
 })
 
-function formatDate(value: string | null) {
-  return value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : ''
+function formatDate(value: string | null, utcOffset: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(utcOffset)
+  if (!match || Number.isNaN(date.getTime())) return ''
+  const offsetMinutes = (Number(match[2]) * 60 + Number(match[3])) * (match[1] === '-' ? -1 : 1)
+  const storeTime = new Date(date.getTime() + offsetMinutes * 60_000)
+  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(storeTime)
 }

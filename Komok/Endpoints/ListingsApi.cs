@@ -1,6 +1,7 @@
 using Komok.Contracts;
 using Komok.Data;
 using Komok.Models;
+using Komok.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -94,6 +95,7 @@ public static class ListingsApi
                 product.ListingStatus,
                 product.InventoryStatus,
                 product.ReservedUntil,
+                TimeZoneId = StoreHours.NormalizeUtcOffset(product.Store.TimeZoneId),
                 product.SoldPrice,
                 product.PayoutAmount,
                 product.PayoutStatus,
@@ -173,6 +175,7 @@ public static class ListingsApi
                 item.BuyerName,
                 item.BuyerMessenger,
                 item.BuyerMessengerContact,
+                TimeZoneId = StoreHours.NormalizeUtcOffset(item.Store.TimeZoneId),
                 item.SoldPrice,
                 item.PayoutAmount,
                 item.PayoutStatus,
