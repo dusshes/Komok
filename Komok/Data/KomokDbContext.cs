@@ -1,32 +1,85 @@
 using Komok.Models;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Komok.Data;
 
-public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options) : DbContext(options)
+public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
+    : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
-    public DbSet<TextRecord> Texts => Set<TextRecord>();
-    public DbSet<Text2Record> Text2Records => Set<Text2Record>();
+    public DbSet<Store> Stores => Set<Store>();
+    public DbSet<StoreOpeningInterval> StoreOpeningIntervals => Set<StoreOpeningInterval>();
+    public DbSet<CommissionBand> CommissionBands => Set<CommissionBand>();
+    public DbSet<StoreAdmin> StoreAdministrators => Set<StoreAdmin>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<EmailOutboxMessage> EmailOutbox => Set<EmailOutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<TextRecord>(entity =>
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Store>(entity =>
         {
-            entity.ToTable("Text");
-            entity.HasNoKey();
-            entity.Property(row => row.Txt).HasColumnName("Txt").HasMaxLength(500);
+            entity.Property(store => store.Name).HasMaxLength(160).IsRequired();
+            entity.Property(store => store.Address).HasMaxLength(500).IsRequired();
+            entity.Property(store => store.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(store => store.TimeZoneId).HasMaxLength(80).IsRequired();
         });
 
-        modelBuilder.Entity<Text2Record>(entity =>
+        modelBuilder.Entity<StoreOpeningInterval>(entity =>
         {
-            entity.ToTable("Text2");
-            entity.HasKey(row => row.Id);
-            entity.Property(row => row.Id).ValueGeneratedOnAdd();
-            entity.Property(row => row.Fio).HasColumnName("fio").HasMaxLength(500).IsRequired();
-            entity.HasData(
-                new Text2Record { Id = 1, Fio = "fio1" },
-                new Text2Record { Id = 2, Fio = "fio2" },
-                new Text2Record { Id = 3, Fio = "fio3" });
+            entity.HasOne(interval => interval.Store)
+                .WithMany(store => store.OpeningIntervals)
+                .HasForeignKey(interval => interval.StoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(interval => new { interval.StoreId, interval.DayOfWeek, interval.OpensAt });
+        });
+
+        modelBuilder.Entity<CommissionBand>(entity =>
+        {
+            entity.Property(band => band.PriceThreshold).HasPrecision(12, 2);
+            entity.Property(band => band.Rate).HasPrecision(12, 2);
+            entity.HasOne(band => band.Store)
+                .WithMany(store => store.CommissionBands)
+                .HasForeignKey(band => band.StoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(band => new { band.StoreId, band.PriceThreshold }).IsUnique();
+        });
+
+        modelBuilder.Entity<StoreAdmin>(entity =>
+        {
+            entity.HasKey(link => new { link.StoreId, link.UserId });
+            entity.HasOne(link => link.Store).WithMany(store => store.Administrators)
+                .HasForeignKey(link => link.StoreId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(link => link.User).WithMany()
+                .HasForeignKey(link => link.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.Property(product => product.Title).HasMaxLength(160).IsRequired();
+            entity.Property(product => product.Description).HasMaxLength(5000).IsRequired();
+            entity.Property(product => product.AskingPrice).HasPrecision(12, 2);
+            entity.Property(product => product.CommissionRate).HasPrecision(12, 2);
+            entity.Property(product => product.SoldPrice).HasPrecision(12, 2);
+            entity.Property(product => product.CommissionAmount).HasPrecision(12, 2);
+            entity.Property(product => product.PayoutAmount).HasPrecision(12, 2);
+            entity.HasOne(product => product.Store).WithMany()
+                .HasForeignKey(product => product.StoreId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(product => product.Seller).WithMany()
+                .HasForeignKey(product => product.SellerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(product => new { product.StoreId, product.ListingStatus, product.InventoryStatus });
+            entity.HasIndex(product => product.SellerId);
+        });
+
+        modelBuilder.Entity<EmailOutboxMessage>(entity =>
+        {
+            entity.Property(message => message.Recipient).HasMaxLength(320).IsRequired();
+            entity.Property(message => message.Subject).HasMaxLength(300).IsRequired();
+            entity.Property(message => message.Body).IsRequired();
+            entity.Property(message => message.LastError).HasMaxLength(2000);
+            entity.HasIndex(message => new { message.SentAt, message.NextAttemptAt, message.CreatedAt });
         });
     }
 }

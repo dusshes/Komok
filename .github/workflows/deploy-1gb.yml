@@ -36,6 +36,12 @@ jobs:
       - name: Write production database settings
         env:
           KOMOK_DATABASE: ${{ secrets.KOMOK_DATABASE }}
+          KOMOK_SMTP_HOST: ${{ secrets.KOMOK_SMTP_HOST }}
+          KOMOK_SMTP_PORT: ${{ secrets.KOMOK_SMTP_PORT }}
+          KOMOK_SMTP_USERNAME: ${{ secrets.KOMOK_SMTP_USERNAME }}
+          KOMOK_SMTP_PASSWORD: ${{ secrets.KOMOK_SMTP_PASSWORD }}
+          KOMOK_SMTP_FROM: ${{ secrets.KOMOK_SMTP_FROM }}
+          KOMOK_SMTP_ENABLE_SSL: ${{ secrets.KOMOK_SMTP_ENABLE_SSL }}
         run: |
           python3 - <<'PY'
           import json
@@ -64,7 +70,21 @@ jobs:
 
           settings_path = Path("publish/appsettings.Production.json")
           settings_path.write_text(
-              json.dumps({"ConnectionStrings": {"KomokDatabase": connection}}, indent=2) + "\n",
+              json.dumps(
+                  {
+                      "ConnectionStrings": {"KomokDatabase": connection},
+                      "Smtp": {
+                          "Host": os.environ.get("KOMOK_SMTP_HOST", ""),
+                          "Port": os.environ.get("KOMOK_SMTP_PORT", "587"),
+                          "Username": os.environ.get("KOMOK_SMTP_USERNAME", ""),
+                          "Password": os.environ.get("KOMOK_SMTP_PASSWORD", ""),
+                          "From": os.environ.get("KOMOK_SMTP_FROM", ""),
+                          "EnableSsl": os.environ.get("KOMOK_SMTP_ENABLE_SSL", "true").lower()
+                              not in ("false", "0", "no")
+                      }
+                  },
+                  indent=2,
+              ) + "\n",
               encoding="utf-8",
           )
 
