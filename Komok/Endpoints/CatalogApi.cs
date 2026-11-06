@@ -121,7 +121,7 @@ public static class CatalogApi
                             continue;
                         slots.Add(new
                         {
-                            value = arrivalAt.ToString("O", CultureInfo.InvariantCulture),
+                            value = arrivalAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
                             label = arrivalAt.ToString("dd.MM.yyyy HH:mm", CultureInfo.GetCultureInfo("ru-RU"))
                         });
                     }
@@ -142,7 +142,8 @@ public static class CatalogApi
         CancellationToken cancellationToken)
     {
         var inputErrors = new List<(string Field, string Message)>();
-        if (request.ArrivalAt <= DateTimeOffset.UtcNow)
+        var arrivalAtUtc = request.ArrivalAt.ToUniversalTime();
+        if (arrivalAtUtc <= DateTimeOffset.UtcNow)
             inputErrors.Add(("arrivalAt", "Выберите доступное время визита."));
         if (request.Name?.Length > 160)
             inputErrors.Add(("name", "Имя должно содержать не более 160 символов."));
@@ -171,16 +172,16 @@ public static class CatalogApi
         DateTimeOffset expiresAt;
         try
         {
-            if (!StoreHours.IsOpenAt(product.Store, request.ArrivalAt))
+            if (!StoreHours.IsOpenAt(product.Store, arrivalAtUtc))
                 return ValidationErrors.BadRequest(("arrivalAt", "Выберите доступное время визита."));
-            expiresAt = StoreHours.AddWorkingHours(product.Store, now, product.Store.BookingDurationHours);
+            expiresAt = StoreHours.AddWorkingHours(product.Store, now, product.Store.BookingDurationHours).ToUniversalTime();
         }
         catch (TimeZoneNotFoundException)
         {
             return Results.Problem("Для магазина настроен неизвестный часовой пояс.", statusCode: 500);
         }
 
-        if (request.ArrivalAt > expiresAt || !IsSlotBoundary(product.Store, request.ArrivalAt))
+        if (arrivalAtUtc > expiresAt || !IsSlotBoundary(product.Store, arrivalAtUtc))
             return ValidationErrors.BadRequest(("arrivalAt", "Выберите доступное время визита."));
 
         var updated = await db.Products
@@ -190,7 +191,7 @@ public static class CatalogApi
             .ExecuteUpdateAsync(update => update
                 .SetProperty(item => item.InventoryStatus, InventoryStatus.Reserved)
                 .SetProperty(item => item.ReservedUntil, expiresAt)
-                .SetProperty(item => item.ArrivalAt, request.ArrivalAt)
+                .SetProperty(item => item.ArrivalAt, arrivalAtUtc)
                 .SetProperty(item => item.BuyerName, request.Name)
                 .SetProperty(item => item.BuyerMessenger, request.Messenger)
                 .SetProperty(item => item.BuyerMessengerContact, request.MessengerContact.Trim()), cancellationToken);
