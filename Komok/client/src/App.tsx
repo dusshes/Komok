@@ -283,6 +283,7 @@ export default function App() {
   const [messengerContact, setMessengerContact] = useState('')
   const [payoutDetails, setPayoutDetails] = useState('')
   const [listings, setListings] = useState<Listing[]>([])
+  const [relativeClock, setRelativeClock] = useState(() => Date.now())
   const [listingForm, setListingForm] = useState({ title: '', description: '', askingPrice: '' })
   const [listingBusy, setListingBusy] = useState(false)
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null)
@@ -395,6 +396,29 @@ export default function App() {
   // Initial load only.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (view !== 'listings') return
+
+    let timer: number | undefined
+    const updateRelativeClock = () => {
+      const now = Date.now()
+      setRelativeClock(now)
+
+      const nextArrival = listings
+        .map((listing) => listing.arrivalAt ? Date.parse(listing.arrivalAt) : Number.NaN)
+        .filter((arrivalAt) => Number.isFinite(arrivalAt) && arrivalAt > now)
+        .sort((left, right) => left - right)[0]
+
+      if (nextArrival === undefined) return
+
+      const nextMinute = 60_000 - (now % 60_000)
+      timer = window.setTimeout(updateRelativeClock, Math.min(nextMinute, nextArrival - now))
+    }
+
+    updateRelativeClock()
+    return () => { if (timer !== undefined) window.clearTimeout(timer) }
+  }, [view, listings])
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -661,7 +685,7 @@ export default function App() {
         <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => setView('new-listing')}>＋ Подать заявку</button></div>
         {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => setView('new-listing')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
           <div><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3>{listing.title}</h3><p>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
-            {(listing.reservedUntil || listing.arrivalAt) && <div className="reservation-details">{listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)}</p>}</div>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
+            {(listing.reservedUntil || listing.arrivalAt) && <div className="reservation-details">{listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)} ({formatRelativeArrival(listing.arrivalAt, relativeClock)})</p>}</div>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
           </div>
           <div className="button-row">{listing.listingStatus === 'AwaitingDelivery' && <><button className="button button-small" onClick={() => void listingAction(listing.id, 'delivery')}>Передал в доставку</button><button className="button-quiet" onClick={() => void listingAction(listing.id, 'cancel')}>Отменить заявку</button></>}</div>
         </article>)}</div>}
@@ -814,4 +838,23 @@ function formatDate(value: string | null, utcOffset: string) {
   const offsetMinutes = (Number(match[2]) * 60 + Number(match[3])) * (match[1] === '-' ? -1 : 1)
   const storeTime = new Date(date.getTime() + offsetMinutes * 60_000)
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(storeTime)
+}
+
+function formatRelativeArrival(value: string, now: number) {
+  const remainingMilliseconds = Date.parse(value) - now
+  if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) return 'время прошло'
+
+  const totalMinutes = Math.floor(remainingMilliseconds / 60_000)
+  if (totalMinutes === 0) return 'через 1 мин.'
+
+  const days = Math.floor(totalMinutes / (24 * 60))
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60)
+  const minutes = totalMinutes % 60
+  const parts = [
+    days > 0 ? `${days} д.` : '',
+    hours > 0 ? `${hours} ч.` : '',
+    minutes > 0 ? `${minutes} мин.` : '',
+  ].filter(Boolean)
+
+  return `через ${parts.join(' ')}`
 }
