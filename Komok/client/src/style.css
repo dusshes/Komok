@@ -94,3 +94,4 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
 @media (max-width: 800px) {
   .photo-credit { text-align: left; }
 }
+.reservation-details { display: grid; gap: 3px; }.reservation-details p { margin: 0; }
