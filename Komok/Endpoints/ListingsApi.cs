@@ -95,6 +95,7 @@ public static class ListingsApi
                 product.ListingStatus,
                 product.InventoryStatus,
                 product.ReservedUntil,
+                product.ArrivalAt,
                 TimeZoneId = StoreHours.NormalizeUtcOffset(product.Store.TimeZoneId),
                 product.SoldPrice,
                 product.PayoutAmount,
