@@ -689,7 +689,7 @@ export default function App() {
         </> : !user?.isSuperAdmin && <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
       </section>}
 
-      <footer className="footer"><span>Комок</span><span>Вещи продолжают жить</span></footer>
+      <footer className="footer"><span>Комок</span><span>Вещи продолжают жить</span><span className="photo-credit">Фон: <a href="https://commons.wikimedia.org/wiki/File:Cau_Thuan_Phuoc_ve_dem.JPG" target="_blank" rel="noreferrer">Thick thi sock, Wikimedia Commons</a>, <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a> (кадрировано и затемнено)</span></footer>
     </main>
   )
 }
