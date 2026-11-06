@@ -255,7 +255,7 @@ function makeStoreForm(): {
     name: '',
     address: '',
     currencyCode: 'RUB',
-    timeZoneId: 'Europe/Moscow',
+    timeZoneId: '+03:00',
     bookingDurationHours: 24,
     openingIntervals: [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek, opensAt: '10:00', closesAt: '19:00' })),
     commissionBands: [{ priceThreshold: 0, kind: 'Percent' as const, rate: 30 }],
@@ -460,7 +460,7 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: bookingProduct.id,
-          arrivalAt: localDateTimeInZone(`${booking.arrivalDate}T${booking.arrivalTime}`, selectedStore?.timeZoneId ?? 'Europe/Moscow'),
+          arrivalAt: localDateTimeInZone(`${booking.arrivalDate}T${booking.arrivalTime}`, selectedStore?.timeZoneId ?? '+03:00'),
           name: booking.name || null,
           phone: booking.phone || null,
           email: booking.email || null,
@@ -657,7 +657,7 @@ export default function App() {
             <form className="form-stack" onSubmit={saveStore} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
               <label>Название<input name="name" required maxLength={160} value={storeForm.name} onChange={(event) => setStoreForm({ ...storeForm, name: event.target.value })} /></label>
               <label>Адрес передачи товара<input name="address" required maxLength={500} value={storeForm.address} onChange={(event) => setStoreForm({ ...storeForm, address: event.target.value })} /></label>
-              <div className="two-columns"><label>Валюта<input name="currencyCode" required minLength={3} maxLength={3} pattern="[A-Za-z]{3}" value={storeForm.currencyCode} onChange={(event) => setStoreForm({ ...storeForm, currencyCode: event.target.value.toUpperCase() })} /></label><label>Часовой пояс<input name="timeZoneId" required value={storeForm.timeZoneId} onChange={(event) => setStoreForm({ ...storeForm, timeZoneId: event.target.value })} /></label></div>
+              <div className="two-columns"><label>Валюта<input name="currencyCode" required minLength={3} maxLength={3} pattern="[A-Za-z]{3}" value={storeForm.currencyCode} onChange={(event) => setStoreForm({ ...storeForm, currencyCode: event.target.value.toUpperCase() })} /></label><label>Часовой пояс магазина<select name="timeZoneId" required value={storeForm.timeZoneId} onChange={(event) => setStoreForm({ ...storeForm, timeZoneId: event.target.value })}>{utcOffsetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>
               <label>Бронь, рабочие часы<input name="bookingDurationHours" required type="number" min="1" max="720" step="1" value={storeForm.bookingDurationHours} onChange={(event) => setStoreForm({ ...storeForm, bookingDurationHours: Number(event.target.value) })} /></label>
               <div className="subheading"><h3>Рабочие интервалы</h3><button type="button" className="button-quiet" onClick={() => setStoreForm({ ...storeForm, openingIntervals: [...storeForm.openingIntervals, { dayOfWeek: 1, opensAt: '10:00', closesAt: '19:00' }] })}>Добавить интервал</button></div>
               {storeForm.openingIntervals.map((interval, index) => <div className="interval-row" key={`${index}-${interval.dayOfWeek}`}>
@@ -757,24 +757,38 @@ function formatMoney(amount: number, currency: string) {
   catch { return `${amount.toFixed(2)} ${currency}` }
 }
 
-function localDateTimeInZone(value: string, timeZoneId: string) {
+function localDateTimeInZone(value: string, utcOffset: string) {
   const [date, time] = value.split('T')
   const [year, month, day] = date.split('-').map(Number)
   const [hour, minute] = time.split(':').map(Number)
-  const target = Date.UTC(year, month - 1, day, hour, minute)
-  let candidate = target
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: timeZoneId,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  })
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).map((part) => [part.type, part.value]))
-    const shown = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute))
-    candidate += target - shown
-  }
-  return new Date(candidate).toISOString()
+  const [, sign, offsetHours, offsetMinutes] = /^([+-])(\d{2}):(\d{2})$/.exec(utcOffset) ?? []
+  const offset = (Number(offsetHours) * 60 + Number(offsetMinutes)) * (sign === '-' ? -1 : 1)
+  return new Date(Date.UTC(year, month - 1, day, hour, minute) - offset * 60_000).toISOString()
 }
+
+const utcOffsetLocations: Record<string, string> = {
+  '-12:00': 'острова Бейкер и Хауленд', '-11:00': 'Паго-Паго', '-10:00': 'Гонолулу',
+  '-09:30': 'Маркизские острова', '-09:00': 'Гамбиер', '-08:00': 'Питкэрн',
+  '-07:00': 'Финикс', '-06:00': 'Гватемала', '-05:00': 'Богота, Лима',
+  '-04:00': 'Каракас', '-03:30': 'Сент-Джонс', '-03:00': 'Буэнос-Айрес',
+  '-02:00': 'Фернанду-ди-Норонья', '-01:00': 'Прая', '+00:00': 'Рейкьявик',
+  '+01:00': 'Лагос', '+02:00': 'Йоханнесбург', '+03:00': 'Москва',
+  '+03:30': 'Тегеран', '+04:00': 'Дубай', '+04:30': 'Кабул', '+05:00': 'Ташкент',
+  '+05:30': 'Калькутта', '+05:45': 'Катманду', '+06:00': 'Дакка', '+06:30': 'Янгон',
+  '+07:00': 'Бангкок, Хошимин', '+08:00': 'Сингапур, Манила', '+08:45': 'Юкла',
+  '+09:00': 'Токио', '+09:30': 'Дарвин', '+10:00': 'Брисбен, Владивосток',
+  '+10:30': 'остров Лорд-Хау', '+11:00': 'Нумеа, Магадан', '+12:00': 'Тарава',
+  '+12:45': 'острова Чатем', '+13:00': 'Тонга', '+14:00': 'Киритимати',
+}
+
+const utcOffsetOptions = Array.from({ length: (14 * 60 + 12 * 60) / 15 + 1 }, (_, index) => {
+  const totalMinutes = -12 * 60 + index * 15
+  const sign = totalMinutes < 0 ? '-' : '+'
+  const absoluteMinutes = Math.abs(totalMinutes)
+  const value = `${sign}${String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')}:${String(absoluteMinutes % 60).padStart(2, '0')}`
+  const location = utcOffsetLocations[value]
+  return { value, label: `UTC${sign}${String(Math.floor(absoluteMinutes / 60))}:${String(absoluteMinutes % 60).padStart(2, '0')}${location ? ` — ${location}` : ''}` }
+})
 
 function intervalTimeOptions(opensAt: string, closesAt: string) {
   const [openHour, openMinute] = opensAt.slice(0, 5).split(':').map(Number)

@@ -4,6 +4,7 @@ using Komok.Contracts;
 using Komok.Data;
 using Komok.Models;
 using Komok.Security;
+using Komok.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -54,7 +55,18 @@ public static class AdminApi
             CommissionBands = store.CommissionBands.OrderBy(band => band.PriceThreshold)
                 .Select(band => new { band.Id, band.PriceThreshold, band.Kind, band.Rate })
         }).ToListAsync(cancellationToken);
-        return Results.Ok(stores);
+        return Results.Ok(stores.Select(store => new
+        {
+            store.Id,
+            store.Name,
+            store.Address,
+            store.CurrencyCode,
+            TimeZoneId = StoreHours.NormalizeUtcOffset(store.TimeZoneId),
+            store.BookingDurationHours,
+            store.IsActive,
+            store.OpeningIntervals,
+            store.CommissionBands
+        }));
     }
 
     private static async Task<IResult> CreateStoreAsync(
@@ -191,14 +203,8 @@ public static class AdminApi
             Add("currencyCode", "Введите трёхбуквенный код валюты, например RUB или EUR.");
         if (request.BookingDurationHours is < 1 or > 720)
             Add("bookingDurationHours", "Укажите длительность от 1 до 720 рабочих часов.");
-        if (string.IsNullOrWhiteSpace(request.TimeZoneId))
-            Add("timeZoneId", "Укажите часовой пояс.");
-        else
-        {
-            try { _ = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId); }
-            catch (TimeZoneNotFoundException) { Add("timeZoneId", "Выберите существующий часовой пояс."); }
-            catch (InvalidTimeZoneException) { Add("timeZoneId", "Выберите корректный часовой пояс."); }
-        }
+        if (!StoreHours.IsValidUtcOffset(request.TimeZoneId))
+            Add("timeZoneId", "Выберите смещение UTC от −12:00 до +14:00 с шагом 15 минут.");
 
         if (request.OpeningIntervals is null)
             Add("openingIntervals", "Укажите рабочие интервалы магазина.");

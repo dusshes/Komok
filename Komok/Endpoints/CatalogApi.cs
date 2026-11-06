@@ -34,7 +34,15 @@ public static class CatalogApi
                     .Select(interval => new { DayOfWeek = (int)interval.DayOfWeek, interval.OpensAt, interval.ClosesAt })
             })
             .ToListAsync(cancellationToken);
-        return Results.Ok(stores);
+        return Results.Ok(stores.Select(store => new
+        {
+            store.Id,
+            store.Name,
+            store.CurrencyCode,
+            store.Address,
+            TimeZoneId = StoreHours.NormalizeUtcOffset(store.TimeZoneId),
+            store.OpeningIntervals
+        }));
     }
 
     private static async Task<IResult> GetCatalogAsync(int storeId, KomokDbContext db, CancellationToken cancellationToken)

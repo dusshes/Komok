@@ -15,7 +15,7 @@ public sealed class Store
     public required string Name { get; set; }
     public required string Address { get; set; }
     public required string CurrencyCode { get; set; }
-    public string TimeZoneId { get; set; } = "Europe/Moscow";
+    public string TimeZoneId { get; set; } = "+03:00";
     public int BookingDurationHours { get; set; } = 24;
     public bool IsActive { get; set; } = true;
     public List<StoreOpeningInterval> OpeningIntervals { get; set; } = [];
