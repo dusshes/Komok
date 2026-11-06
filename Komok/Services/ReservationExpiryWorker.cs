@@ -24,6 +24,8 @@ public sealed class ReservationExpiryWorker(IServiceScopeFactory scopeFactory, I
                         .SetProperty(product => product.ReservedUntil, (DateTimeOffset?)null)
                         .SetProperty(product => product.ArrivalAt, (DateTimeOffset?)null)
                         .SetProperty(product => product.BuyerName, (string?)null)
+                        .SetProperty(product => product.BuyerMessenger, (string?)null)
+                        .SetProperty(product => product.BuyerMessengerContact, (string?)null)
                         .SetProperty(product => product.BuyerPhone, (string?)null)
                         .SetProperty(product => product.BuyerEmail, (string?)null), stoppingToken);
                 if (expiredCount > 0)

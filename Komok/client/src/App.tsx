@@ -4,7 +4,6 @@ import type { FormEvent } from 'react'
 type Store = {
   id: number
   name: string
-  address: string
   currencyCode: string
   timeZoneId: string
   openingIntervals: { dayOfWeek: number; opensAt: string; closesAt: string }[]
@@ -49,8 +48,8 @@ type AdminProduct = {
   sellerPayoutDetails: string
   arrivalAt: string | null
   buyerName: string | null
-  buyerPhone: string | null
-  buyerEmail: string | null
+  buyerMessenger: string | null
+  buyerMessengerContact: string | null
   soldPrice: number | null
   payoutAmount: number | null
   payoutStatus: string
@@ -59,12 +58,14 @@ type AdminProduct = {
 type OpeningInterval = { dayOfWeek: number; opensAt: string; closesAt: string }
 type CommissionBand = { priceThreshold: number; kind: 'Percent' | 'Fixed'; rate: number }
 type ManagedStore = Store & {
+  address: string
   timeZoneId: string
   bookingDurationHours: number
   isActive: boolean
   openingIntervals: OpeningInterval[]
   commissionBands: CommissionBand[]
 }
+type BookingSlot = { value: string; label: string }
 type CurrentUser = {
   email: string
   messenger: string
@@ -282,7 +283,10 @@ export default function App() {
   const [listingForm, setListingForm] = useState({ title: '', description: '', askingPrice: '' })
   const [listingBusy, setListingBusy] = useState(false)
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null)
-  const [booking, setBooking] = useState({ arrivalDate: '', arrivalTime: '', name: '', phone: '', email: '' })
+  const [booking, setBooking] = useState({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
+  const [bookingAddress, setBookingAddress] = useState('')
+  const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>([])
+  const [bookingLoading, setBookingLoading] = useState(false)
   const [adminStores, setAdminStores] = useState<ManagedStore[]>([])
   const [adminStoreId, setAdminStoreId] = useState<number | null>(null)
   const [adminProducts, setAdminProducts] = useState<AdminProduct[]>([])
@@ -454,24 +458,44 @@ export default function App() {
   async function createBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
-    if (!bookingProduct || !booking.arrivalDate || !booking.arrivalTime) return
+    if (!bookingProduct || !booking.arrivalAt) return
     try {
       await api('/api/bookings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: bookingProduct.id,
-          arrivalAt: localDateTimeInZone(`${booking.arrivalDate}T${booking.arrivalTime}`, selectedStore?.timeZoneId ?? '+03:00'),
+          arrivalAt: booking.arrivalAt,
           name: booking.name || null,
-          phone: booking.phone || null,
-          email: booking.email || null,
+          messenger: booking.messenger,
+          messengerContact: booking.messengerContact,
         }),
       })
       setNotice('Товар забронирован. Сохраните выбранное время визита.')
       setBookingProduct(null)
-      setBooking({ arrivalDate: '', arrivalTime: '', name: '', phone: '', email: '' })
+      setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
+      setBookingSlots([])
+      setBookingAddress('')
       if (storeId) await loadCatalog(storeId)
     } catch (error) {
       showFormFailure(form, error, 'Не удалось забронировать товар.')
+    }
+  }
+
+  async function openBooking(product: Product) {
+    setBookingProduct(product)
+    setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
+    setBookingSlots([])
+    setBookingAddress('')
+    setBookingLoading(true)
+    try {
+      const options = await api<{ address: string; slots: BookingSlot[] }>(`/api/products/${product.id}/booking-options`)
+      setBookingAddress(options.address)
+      setBookingSlots(options.slots)
+    } catch (error) {
+      setBookingProduct(null)
+      setNotice(error instanceof Error ? error.message : 'Не удалось загрузить время визита.')
+    } finally {
+      setBookingLoading(false)
     }
   }
 
@@ -562,11 +586,6 @@ export default function App() {
     }
   }
 
-  const selectedStore = stores.find((store) => store.id === storeId)
-  const bookingDay = booking.arrivalDate ? new Date(`${booking.arrivalDate}T00:00:00Z`).getUTCDay() : -1
-  const arrivalTimes = selectedStore?.openingIntervals
-    .filter((interval) => interval.dayOfWeek === bookingDay)
-    .flatMap((interval) => intervalTimeOptions(interval.opensAt, interval.closesAt)) ?? []
 
   return (
     <main className="site-shell">
@@ -594,18 +613,20 @@ export default function App() {
             {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
           </select></label>
         </div>
-        {selectedStore && <p className="store-address">{selectedStore.address}</p>}
         {loadingCatalog ? <p className="empty-state">Загружаем товары…</p> : products.length === 0 ? <div className="empty-state"><span>✳</span><h3>Пока нет товаров на витрине</h3><p>Загляните позже или выберите другой магазин.</p></div> :
           <div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}>
             <div className="product-visual"><span className="product-category">Комок · находка</span><span className="product-symbol">✳</span></div>
             <div className="product-info"><h3>{product.title}</h3><p>{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
-              {product.status === 'Available' ? <button className="button button-small" onClick={() => setBookingProduct(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil)}</span> : <span className="badge">Продано</span>}
+              {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil)}</span> : <span className="badge">Продано</span>}
             </div>
             {bookingProduct?.id === product.id && <form className="booking-form" onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
               <h4>Когда вы приедете?</h4>
-              <div className="two-columns"><label>Дата визита<input name="arrivalDate" aria-label="Дата визита" type="date" required value={booking.arrivalDate} onChange={(event) => setBooking({ ...booking, arrivalDate: event.target.value, arrivalTime: '' })} /></label><label>Время прибытия<select name="arrivalTime" aria-label="Время прибытия" required value={booking.arrivalTime} onChange={(event) => setBooking({ ...booking, arrivalTime: event.target.value })}><option value="">Выберите время</option>{arrivalTimes.map((time) => <option key={time} value={time}>{time}</option>)}</select></label></div>
-              {booking.arrivalDate && arrivalTimes.length === 0 && <p className="muted">В выбранный день магазин закрыт.</p>}
-              <div className="optional-fields"><input name="name" placeholder="Имя (необязательно)" maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /><input name="phone" placeholder="Телефон (необязательно)" maxLength={40} value={booking.phone} onChange={(event) => setBooking({ ...booking, phone: event.target.value })} /><input name="email" placeholder="Email (необязательно)" type="email" maxLength={320} value={booking.email} onChange={(event) => setBooking({ ...booking, email: event.target.value })} /></div>
+              {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
+              {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
+              {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
+              <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
+              <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
+              <label>Имя (необязательно)<input name="name" maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
               <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
             </form>}
             </div>
@@ -738,7 +759,7 @@ function AdminProductCard({ product, onChanged, onNotice }: {
 
   return <article className="admin-product panel">
     <div className="admin-product-title"><div><span className="badge">{listingLabels[product.listingStatus] ?? product.listingStatus} · {product.inventoryStatus}</span><h3>{product.title}</h3><p className="muted">Продавец: {product.sellerEmail} · {product.sellerMessenger}: {product.sellerMessengerContact}</p></div><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong></div>
-    {product.inventoryStatus === 'Reserved' && <p className="muted">Бронь до {formatDate(product.reservedUntil ?? null)} · прибытие {formatDate(product.arrivalAt)}{product.buyerName ? ` · ${product.buyerName}` : ''}{product.buyerPhone ? ` · ${product.buyerPhone}` : ''}{product.buyerEmail ? ` · ${product.buyerEmail}` : ''}</p>}
+    {product.inventoryStatus === 'Reserved' && <p className="muted">Бронь до {formatDate(product.reservedUntil ?? null)} · прибытие {formatDate(product.arrivalAt)}{product.buyerName ? ` · ${product.buyerName}` : ''}{product.buyerMessenger && product.buyerMessengerContact ? ` · ${product.buyerMessenger}: ${product.buyerMessengerContact}` : ''}</p>}
     {['Submitted', 'NeedsRevision'].includes(product.listingStatus) && <form className="form-stack review-fields" onSubmit={approveListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
       <label>Название<input name="title" required value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>Описание<textarea name="description" required rows={3} value={description} maxLength={5000} onChange={(event) => setDescription(event.target.value)} /></label>
@@ -755,15 +776,6 @@ function AdminProductCard({ product, onChanged, onNotice }: {
 function formatMoney(amount: number, currency: string) {
   try { return new Intl.NumberFormat('ru-RU', { style: 'currency', currency }).format(amount) }
   catch { return `${amount.toFixed(2)} ${currency}` }
-}
-
-function localDateTimeInZone(value: string, utcOffset: string) {
-  const [date, time] = value.split('T')
-  const [year, month, day] = date.split('-').map(Number)
-  const [hour, minute] = time.split(':').map(Number)
-  const [, sign, offsetHours, offsetMinutes] = /^([+-])(\d{2}):(\d{2})$/.exec(utcOffset) ?? []
-  const offset = (Number(offsetHours) * 60 + Number(offsetMinutes)) * (sign === '-' ? -1 : 1)
-  return new Date(Date.UTC(year, month - 1, day, hour, minute) - offset * 60_000).toISOString()
 }
 
 const utcOffsetLocations: Record<string, string> = {
@@ -789,18 +801,6 @@ const utcOffsetOptions = Array.from({ length: (14 * 60 + 12 * 60) / 15 + 1 }, (_
   const location = utcOffsetLocations[value]
   return { value, label: `UTC${sign}${String(Math.floor(absoluteMinutes / 60))}:${String(absoluteMinutes % 60).padStart(2, '0')}${location ? ` — ${location}` : ''}` }
 })
-
-function intervalTimeOptions(opensAt: string, closesAt: string) {
-  const [openHour, openMinute] = opensAt.slice(0, 5).split(':').map(Number)
-  const [closeHour, closeMinute] = closesAt.slice(0, 5).split(':').map(Number)
-  const start = openHour * 60 + openMinute
-  const end = closeHour * 60 + closeMinute
-  const times: string[] = []
-  for (let minute = start; minute < end; minute += 30) {
-    times.push(`${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`)
-  }
-  return times
-}
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : ''

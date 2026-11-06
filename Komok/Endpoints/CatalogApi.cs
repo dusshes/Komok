@@ -3,7 +3,7 @@ using Komok.Data;
 using Komok.Models;
 using Komok.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Net.Mail;
+using System.Globalization;
 
 namespace Komok.Endpoints;
 
@@ -14,6 +14,7 @@ public static class CatalogApi
         var api = endpoints.MapGroup("/api");
         api.MapGet("/stores", GetStoresAsync).WithName("GetStores");
         api.MapGet("/catalog", GetCatalogAsync).WithName("GetCatalog");
+        api.MapGet("/products/{productId:long}/booking-options", GetBookingOptionsAsync).WithName("GetBookingOptions");
         api.MapPost("/bookings", CreateBookingAsync).WithName("CreateBooking");
         return endpoints;
     }
@@ -28,7 +29,6 @@ public static class CatalogApi
                 store.Id,
                 store.Name,
                 store.CurrencyCode,
-                store.Address,
                 store.TimeZoneId,
                 OpeningIntervals = store.OpeningIntervals
                     .Select(interval => new { DayOfWeek = (int)interval.DayOfWeek, interval.OpensAt, interval.ClosesAt })
@@ -39,7 +39,6 @@ public static class CatalogApi
             store.Id,
             store.Name,
             store.CurrencyCode,
-            store.Address,
             TimeZoneId = StoreHours.NormalizeUtcOffset(store.TimeZoneId),
             store.OpeningIntervals
         }));
@@ -59,6 +58,8 @@ public static class CatalogApi
                 .SetProperty(product => product.ReservedUntil, (DateTimeOffset?)null)
                 .SetProperty(product => product.ArrivalAt, (DateTimeOffset?)null)
                 .SetProperty(product => product.BuyerName, (string?)null)
+                .SetProperty(product => product.BuyerMessenger, (string?)null)
+                .SetProperty(product => product.BuyerMessengerContact, (string?)null)
                 .SetProperty(product => product.BuyerPhone, (string?)null)
                 .SetProperty(product => product.BuyerEmail, (string?)null), cancellationToken);
 
@@ -80,6 +81,61 @@ public static class CatalogApi
         return Results.Ok(products);
     }
 
+    private static async Task<IResult> GetBookingOptionsAsync(
+        long productId,
+        KomokDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var product = await db.Products.AsNoTracking()
+            .Include(item => item.Store).ThenInclude(store => store.OpeningIntervals)
+            .SingleOrDefaultAsync(item => item.Id == productId, cancellationToken);
+        if (product is null || !product.Store.IsActive || product.ListingStatus != ListingStatus.OnSale)
+            return Results.NotFound(new { message = "Товар не найден." });
+
+        var now = DateTimeOffset.UtcNow;
+        if (product.InventoryStatus == InventoryStatus.Sold)
+            return Results.Conflict(new { message = "Товар уже продан." });
+        if (product.InventoryStatus == InventoryStatus.Reserved && product.ReservedUntil > now)
+            return Results.Conflict(new { message = "Товар уже забронирован до указанного времени." });
+        if (product.Store.OpeningIntervals.Count == 0)
+            return Results.Ok(new { address = product.Store.Address, slots = Array.Empty<object>() });
+
+        try
+        {
+            var expiresAt = StoreHours.AddWorkingHours(product.Store, now, product.Store.BookingDurationHours);
+            var zone = StoreHours.GetTimeZone(product.Store);
+            var firstDate = TimeZoneInfo.ConvertTime(now, zone).Date;
+            var lastDate = TimeZoneInfo.ConvertTime(expiresAt, zone).Date;
+            var slots = new List<object>();
+            for (var date = firstDate; date <= lastDate; date = date.AddDays(1))
+            {
+                foreach (var interval in product.Store.OpeningIntervals.Where(item => item.DayOfWeek == date.DayOfWeek))
+                {
+                    var open = date.Add(interval.OpensAt.ToTimeSpan());
+                    var close = date.Add(interval.ClosesAt.ToTimeSpan());
+                    for (var local = open; local < close; local = local.AddMinutes(30))
+                    {
+                        var offset = zone.GetUtcOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified));
+                        var arrivalAt = new DateTimeOffset(local, offset);
+                        if (arrivalAt <= now || arrivalAt > expiresAt)
+                            continue;
+                        slots.Add(new
+                        {
+                            value = arrivalAt.ToString("O", CultureInfo.InvariantCulture),
+                            label = arrivalAt.ToString("dd.MM.yyyy HH:mm", CultureInfo.GetCultureInfo("ru-RU"))
+                        });
+                    }
+                }
+            }
+
+            return Results.Ok(new { address = product.Store.Address, slots });
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return Results.Problem("Для магазина настроен неизвестный часовой пояс.", statusCode: 500);
+        }
+    }
+
     private static async Task<IResult> CreateBookingAsync(
         BookingRequest request,
         KomokDbContext db,
@@ -87,15 +143,13 @@ public static class CatalogApi
     {
         var inputErrors = new List<(string Field, string Message)>();
         if (request.ArrivalAt <= DateTimeOffset.UtcNow)
-            inputErrors.Add(("arrivalTime", "Выберите время прибытия в будущем."));
+            inputErrors.Add(("arrivalAt", "Выберите доступное время визита."));
         if (request.Name?.Length > 160)
             inputErrors.Add(("name", "Имя должно содержать не более 160 символов."));
-        if (request.Phone?.Length > 40)
-            inputErrors.Add(("phone", "Телефон должен содержать не более 40 символов."));
-        if (request.Email?.Length > 320)
-            inputErrors.Add(("email", "Email должен содержать не более 320 символов."));
-        else if (!string.IsNullOrWhiteSpace(request.Email) && !MailAddress.TryCreate(request.Email, out _))
-            inputErrors.Add(("email", "Введите email в корректном формате."));
+        if (!new[] { "Telegram", "WhatsApp", "MAX", "Zalo" }.Contains(request.Messenger, StringComparer.Ordinal))
+            inputErrors.Add(("messenger", "Выберите мессенджер из списка."));
+        if (string.IsNullOrWhiteSpace(request.MessengerContact) || request.MessengerContact.Length > 200)
+            inputErrors.Add(("messengerContact", "Укажите контакт в мессенджере длиной не более 200 символов."));
         if (inputErrors.Count > 0)
             return ValidationErrors.BadRequest(inputErrors.ToArray());
 
@@ -118,7 +172,7 @@ public static class CatalogApi
         try
         {
             if (!StoreHours.IsOpenAt(product.Store, request.ArrivalAt))
-                return ValidationErrors.BadRequest(("arrivalTime", "Выберите время в рабочие часы магазина."));
+                return ValidationErrors.BadRequest(("arrivalAt", "Выберите доступное время визита."));
             expiresAt = StoreHours.AddWorkingHours(product.Store, now, product.Store.BookingDurationHours);
         }
         catch (TimeZoneNotFoundException)
@@ -126,8 +180,8 @@ public static class CatalogApi
             return Results.Problem("Для магазина настроен неизвестный часовой пояс.", statusCode: 500);
         }
 
-        if (request.ArrivalAt > expiresAt)
-            return ValidationErrors.BadRequest(("arrivalTime", "Выберите время не позже окончания срока брони."));
+        if (request.ArrivalAt > expiresAt || !IsSlotBoundary(product.Store, request.ArrivalAt))
+            return ValidationErrors.BadRequest(("arrivalAt", "Выберите доступное время визита."));
 
         var updated = await db.Products
             .Where(item => item.Id == product.Id && item.ListingStatus == ListingStatus.OnSale
@@ -138,11 +192,24 @@ public static class CatalogApi
                 .SetProperty(item => item.ReservedUntil, expiresAt)
                 .SetProperty(item => item.ArrivalAt, request.ArrivalAt)
                 .SetProperty(item => item.BuyerName, request.Name)
-                .SetProperty(item => item.BuyerPhone, request.Phone)
-                .SetProperty(item => item.BuyerEmail, request.Email), cancellationToken);
+                .SetProperty(item => item.BuyerMessenger, request.Messenger)
+                .SetProperty(item => item.BuyerMessengerContact, request.MessengerContact.Trim()), cancellationToken);
 
         return updated == 0
             ? Results.Conflict(new { message = "Товар уже забронирован другим покупателем." })
             : Results.Ok(new { productId = product.Id, expiresAt });
+    }
+
+    private static bool IsSlotBoundary(Store store, DateTimeOffset instant)
+    {
+        var local = TimeZoneInfo.ConvertTime(instant, StoreHours.GetTimeZone(store));
+        var time = TimeOnly.FromDateTime(local.DateTime);
+        return store.OpeningIntervals.Any(interval =>
+        {
+            if (interval.DayOfWeek != local.DayOfWeek || time < interval.OpensAt || time >= interval.ClosesAt)
+                return false;
+            var minutesFromOpen = (int)(time.ToTimeSpan() - interval.OpensAt.ToTimeSpan()).TotalMinutes;
+            return minutesFromOpen % 30 == 0;
+        });
     }
 }

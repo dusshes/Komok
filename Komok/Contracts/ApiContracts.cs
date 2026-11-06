@@ -13,7 +13,7 @@ public sealed record RegisterRequest(
 public sealed record LoginRequest(string Email, string Password, bool RememberMe = true);
 public sealed record ConfirmEmailRequest(string Email, string Token);
 public sealed record CreateListingRequest(int StoreId, string Title, string Description, decimal AskingPrice);
-public sealed record BookingRequest(long ProductId, DateTimeOffset ArrivalAt, string? Name, string? Phone, string? Email);
+public sealed record BookingRequest(long ProductId, DateTimeOffset ArrivalAt, string? Name, string Messenger, string MessengerContact);
 public sealed record StoreUpsertRequest(
     string Name,
     string Address,

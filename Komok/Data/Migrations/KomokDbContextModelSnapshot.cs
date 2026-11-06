@@ -191,6 +191,14 @@ namespace Komok.Data.Migrations
                     b.Property<string>("BuyerEmail")
                         .HasColumnType("text");
 
+                    b.Property<string>("BuyerMessenger")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("BuyerMessengerContact")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("BuyerName")
                         .HasColumnType("text");
 

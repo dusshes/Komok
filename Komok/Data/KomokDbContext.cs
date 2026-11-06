@@ -60,6 +60,8 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
         {
             entity.Property(product => product.Title).HasMaxLength(160).IsRequired();
             entity.Property(product => product.Description).HasMaxLength(5000).IsRequired();
+            entity.Property(product => product.BuyerMessenger).HasMaxLength(32);
+            entity.Property(product => product.BuyerMessengerContact).HasMaxLength(200);
             entity.Property(product => product.AskingPrice).HasPrecision(12, 2);
             entity.Property(product => product.CommissionRate).HasPrecision(12, 2);
             entity.Property(product => product.SoldPrice).HasPrecision(12, 2);
