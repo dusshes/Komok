@@ -73,5 +73,6 @@ app.MapCatalogApi();
 app.MapCategoryApi();
 app.MapListingsApi();
 app.MapAdminApi();
+app.MapFallbackToFile("/stores/{*path:nonfile}", "index.html");
 
 app.Run();
