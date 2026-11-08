@@ -291,6 +291,7 @@ export default function App() {
   const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>([])
   const [bookingLoading, setBookingLoading] = useState(false)
   const [detailProduct, setDetailProduct] = useState<Product | null>(null)
+  const [catalogPhotoIndexes, setCatalogPhotoIndexes] = useState<Record<number, number>>({})
   const [adminStores, setAdminStores] = useState<ManagedStore[]>([])
   const [adminStoreId, setAdminStoreId] = useState<number | null>(null)
   const [adminProducts, setAdminProducts] = useState<AdminProduct[]>([])
@@ -617,7 +618,7 @@ export default function App() {
     const form = event.currentTarget
     if (!bookingProduct || !booking.arrivalAt) return
     try {
-      await api('/api/bookings', {
+      const bookingResult = await api<{ productId: number; expiresAt: string }>('/api/bookings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: bookingProduct.id,
@@ -633,6 +634,9 @@ export default function App() {
       setBookingSlots([])
       setBookingAddress('')
       setDetailProduct(null)
+      setProducts((current) => current.map((product) => product.id === bookingResult.productId
+        ? { ...product, status: 'Reserved', reservedUntil: bookingResult.expiresAt }
+        : product))
       if (storeId) await loadCatalog(storeId)
     } catch (error) {
       showFormFailure(form, error, 'Не удалось забронировать товар.')
@@ -766,14 +770,33 @@ export default function App() {
     products: visibleProducts.filter((product) => product.categoryId === category.id),
   })).filter((group) => group.products.length > 0)
 
+  function setCatalogPhotoIndex(productId: number, index: number) {
+    setCatalogPhotoIndexes((current) => ({ ...current, [productId]: index }))
+  }
+
   function renderProductCard(product: Product) {
     const openDetails = () => setDetailProduct(product)
+    const activePhotoIndex = catalogPhotoIndexes[product.id] ?? 0
+    const activePhoto = product.photos[activePhotoIndex]
+    const changePhotoBySwipe = (event: React.PointerEvent<HTMLDivElement>) => {
+      const startX = event.clientX
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        const delta = upEvent.clientX - startX
+        if (Math.abs(delta) > 40) {
+          const nextIndex = Math.max(0, Math.min(product.photos.length - 1, activePhotoIndex + (delta < 0 ? 1 : -1)))
+          setCatalogPhotoIndex(product.id, nextIndex)
+        }
+        window.removeEventListener('pointerup', handlePointerUp)
+      }
+      window.addEventListener('pointerup', handlePointerUp, { once: true })
+    }
     return <article className="product-card" key={product.id} onClick={openDetails} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openDetails() }} role="button" tabIndex={0}>
-      <div className="product-visual">{product.photos.length > 0 ? <div className="catalog-photo-strip">{product.photos.map((photo, index) => <img id={`catalog-photo-${product.id}-${index}`} key={photo.id} src={photo.thumbnailUrl ?? photo.url} alt={product.title} loading="lazy" />)}</div> : <span className="product-symbol">✳</span>}<span className="product-category">{product.category}</span></div>
-      <div className="product-info"><h3>{product.title}</h3><p className="product-description">{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
+      <div className="product-visual" onClick={(event) => event.stopPropagation()} onPointerDown={changePhotoBySwipe}>{activePhoto ? <img src={activePhoto.mediumUrl ?? activePhoto.thumbnailUrl ?? activePhoto.url} alt={product.title} loading="lazy" /> : <span className="product-symbol">✳</span>}
+        {product.photos.length > 1 && <div className="catalog-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setCatalogPhotoIndex(product.id, index)} />)}</div>}
+      </div>
+      <div className="product-info"><h3>{product.title}</h3><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
         {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
       </div>
-      {product.photos.length > 1 && <div className="catalog-photo-dots" onClick={(event) => event.stopPropagation()}>{product.photos.map((photo, index) => <button key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={(event) => { event.stopPropagation(); document.getElementById(`catalog-photo-${product.id}-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }) }} />)}</div>}
       {bookingProduct?.id === product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
         <h4>Когда вы приедете?</h4>
         {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
