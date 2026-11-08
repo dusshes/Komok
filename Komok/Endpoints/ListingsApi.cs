@@ -104,6 +104,7 @@ public static class ListingsApi
     }
 
     private static async Task<IResult> MineAsync(
+        int storeId,
         ClaimsPrincipal principal,
         UserManager<ApplicationUser> users,
         KomokDbContext db,
@@ -111,7 +112,7 @@ public static class ListingsApi
     {
         var seller = await users.GetUserAsync(principal);
         if (seller is null) return Results.Unauthorized();
-        var listings = await db.Products.AsNoTracking().Where(product => product.SellerId == seller.Id)
+        var listings = await db.Products.AsNoTracking().Where(product => product.SellerId == seller.Id && product.StoreId == storeId)
             .OrderByDescending(product => product.CreatedAt)
             .Select(product => new
             {

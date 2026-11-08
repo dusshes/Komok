@@ -279,7 +279,6 @@ function makeStoreForm(): {
 export default function App() {
   const [stores, setStores] = useState<Store[]>([])
   const [catalogStoreId, setCatalogStoreId] = useState<number | null>(null)
-  const [listingStoreId, setListingStoreId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([])
   const [activeCategories, setActiveCategories] = useState<Category[]>([])
@@ -292,6 +291,10 @@ export default function App() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const noticeTimer = useRef<number | null>(null)
   const noticeId = useRef(0)
+  const catalogRequestId = useRef(0)
+  const listingsRequestId = useRef(0)
+  const adminProductsRequestId = useRef(0)
+  const adminStoresRequestId = useRef(0)
   const [loadingCatalog, setLoadingCatalog] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authBusy, setAuthBusy] = useState(false)
@@ -336,9 +339,9 @@ export default function App() {
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [detailProduct])
 
-  const storeCommission = stores.find((store) => store.id === listingStoreId)?.commissionBands
+  const storeCommission = stores.find((store) => store.id === catalogStoreId)?.commissionBands
   const listingPrice = listingForm.askingPrice.trim() === '' ? null : Number(listingForm.askingPrice)
-  const hasValidListingPrice = listingStoreId !== null
+  const hasValidListingPrice = catalogStoreId !== null
     && listingPrice !== null
     && Number.isFinite(listingPrice)
     && listingPrice > 0
@@ -391,16 +394,19 @@ export default function App() {
   }, [])
 
   const loadCatalog = useCallback(async (id: number) => {
+    const requestId = ++catalogRequestId.current
     setLoadingCatalog(true)
     try {
       const catalog = await api<CatalogResponse>(`/api/catalog?storeId=${id}`)
+      if (requestId !== catalogRequestId.current) return
       setProducts(catalog.products)
       setCatalogCategories(catalog.categories)
       setSelectedCategoryIds((current) => current.filter((categoryId) => catalog.categories.some((category) => category.id === categoryId)))
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось загрузить каталог.', 'error')
+      if (requestId === catalogRequestId.current)
+        showNotice(error instanceof Error ? error.message : 'Не удалось загрузить каталог.', 'error')
     } finally {
-      setLoadingCatalog(false)
+      if (requestId === catalogRequestId.current) setLoadingCatalog(false)
     }
   }, [])
 
@@ -425,9 +431,11 @@ export default function App() {
     }
   }, [])
 
-  const loadListings = useCallback(async () => {
+  const loadListings = useCallback(async (storeId: number) => {
+    const requestId = ++listingsRequestId.current
     try {
-      const data = await api<Listing[]>('/api/listings/mine')
+      const data = await api<Listing[]>(`/api/listings/mine?storeId=${storeId}`)
+      if (requestId !== listingsRequestId.current) return
       setListings(Array.isArray(data)
         ? data.map((listing) => ({
           ...listing,
@@ -443,15 +451,21 @@ export default function App() {
         }))
         : [])
     }
-    catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error') }
+    catch (error) {
+      if (requestId === listingsRequestId.current)
+        showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error')
+    }
   }, [])
 
   const loadAdminStores = useCallback(async (preferredId?: number) => {
+    const requestId = ++adminStoresRequestId.current
     try {
       const data = await api<ManagedStore[]>('/api/admin/stores')
+      if (requestId !== adminStoresRequestId.current) return
       setAdminStores(data)
-      if (data.length > 0) {
-        const selected = data.find((store) => store.id === (preferredId ?? adminStoreId)) ?? data[0]
+      const targetId = preferredId ?? catalogStoreId
+      const selected = data.find((store) => store.id === targetId)
+      if (selected) {
         setAdminStoreId(selected.id)
         setAdminStoreIds((current) => current.length > 0 ? current : [selected.id])
         setStoreForm({
@@ -468,17 +482,28 @@ export default function App() {
           commissionBands: selected.commissionBands.map((band) => ({ ...band })),
         })
         await loadAdminProducts(selected.id)
+      } else {
+        setAdminStoreId(null)
+        setAdminProducts([])
       }
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось загрузить магазины.', 'error')
+      if (requestId === adminStoresRequestId.current)
+        showNotice(error instanceof Error ? error.message : 'Не удалось загрузить магазины.', 'error')
     }
   // loadAdminProducts is stable and selected store is used only to preserve the current choice.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminStoreId])
+  }, [catalogStoreId])
 
   async function loadAdminProducts(id: number) {
-    try { setAdminProducts(await api<AdminProduct[]>(`/api/admin/products?storeId=${id}`)) }
-    catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить товары магазина.', 'error') }
+    const requestId = ++adminProductsRequestId.current
+    try {
+      const products = await api<AdminProduct[]>(`/api/admin/products?storeId=${id}`)
+      if (requestId === adminProductsRequestId.current) setAdminProducts(products)
+    }
+    catch (error) {
+      if (requestId === adminProductsRequestId.current)
+        showNotice(error instanceof Error ? error.message : 'Не удалось загрузить товары магазина.', 'error')
+    }
   }
 
   useEffect(() => {
@@ -504,19 +529,21 @@ export default function App() {
       await loadActiveCategories()
       const currentStores = await api<Store[]>('/api/stores').catch(() => [] as Store[])
       setStores(currentStores)
+      let selectedStoreId: number | null = null
       if (currentStores.length > 0) {
         const requestedStoreId = storeIdFromPath(window.location.pathname)
         const selectedStore = currentStores.find((store) => store.id === requestedStoreId) ?? currentStores[0]
         if (selectedStore.id !== requestedStoreId) replaceStorePath(selectedStore.id)
+        selectedStoreId = selectedStore.id
         setCatalogStoreId(selectedStore.id)
-        setListingStoreId(currentStores[0].id)
         await loadCatalog(selectedStore.id)
       }
       const currentUser = await loadAccount()
       if (currentUser) {
-        await loadListings()
+        const activeStoreId = storeIdFromPath(window.location.pathname) ?? selectedStoreId
+        if (activeStoreId !== null) await loadListings(activeStoreId)
         if (currentUser.isSuperAdmin) await loadAdminCategories()
-        if (currentUser.isStoreAdmin || currentUser.isSuperAdmin) await loadAdminStores()
+        if ((currentUser.isStoreAdmin || currentUser.isSuperAdmin) && activeStoreId !== null) await loadAdminStores(activeStoreId)
       }
     })()
   // Initial load only.
@@ -565,9 +592,9 @@ export default function App() {
       })
       const current = await loadAccount()
       if (current) {
-        await loadListings()
+        if (catalogStoreId !== null) await loadListings(catalogStoreId)
         if (current.isSuperAdmin) await loadAdminCategories()
-        if (current.isStoreAdmin || current.isSuperAdmin) await loadAdminStores()
+        if ((current.isStoreAdmin || current.isSuperAdmin) && catalogStoreId !== null) await loadAdminStores(catalogStoreId)
         setView(current.isStoreAdmin || current.isSuperAdmin ? 'admin' : 'listings')
       }
       showNotice('Вы вошли в аккаунт.', 'success')
@@ -590,7 +617,7 @@ export default function App() {
   async function createListing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
-    if (listingStoreId === null || !hasValidListingPrice) {
+    if (catalogStoreId === null || !hasValidListingPrice) {
       const priceControl = form.elements.namedItem('askingPrice')
       if (priceControl instanceof HTMLInputElement) {
         setFieldError(priceControl, 'Введите положительную цену.')
@@ -601,7 +628,7 @@ export default function App() {
     setListingBusy(true)
     try {
       const body = new FormData()
-      body.set('storeId', String(listingStoreId))
+      body.set('storeId', String(catalogStoreId))
       body.set('categoryId', listingForm.categoryId)
       body.set('title', listingForm.title)
       body.set('description', listingForm.description)
@@ -611,7 +638,7 @@ export default function App() {
       setListingForm({ title: '', description: '', askingPrice: '', categoryId: '' })
       setListingPhotos([])
       showNotice('Заявка отправлена администратору магазина.', 'success')
-      await loadListings()
+      if (catalogStoreId !== null) await loadListings(catalogStoreId)
       setView('listings')
     } catch (error) {
       showFormFailure(form, error, 'Не удалось отправить заявку.')
@@ -693,7 +720,7 @@ export default function App() {
   async function listingAction(id: number, action: 'delivery' | 'cancel') {
     try {
       await api(`/api/listings/${id}/${action}`, { method: 'POST' })
-      await loadListings()
+      if (catalogStoreId !== null) await loadListings(catalogStoreId)
       showNotice(action === 'delivery' ? 'Отметили передачу товара для доставки.' : 'Заявка отменена.', 'success')
     } catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось изменить заявку.', 'error') }
   }
@@ -721,9 +748,17 @@ export default function App() {
         savedStoreId = created.id
       }
       showNotice('Настройки магазина сохранены.', 'success')
-      await loadAdminStores(savedStoreId ?? undefined)
       const publicStores = await api<Store[]>('/api/stores')
       setStores(publicStores)
+      if (savedStoreId !== null) {
+        setCatalogStoreId(savedStoreId)
+        replaceStorePath(savedStoreId)
+        setSelectedCategoryIds([])
+        setCatalogSearch('')
+        setCatalogSort('newest')
+        await loadCatalog(savedStoreId)
+      }
+      await loadAdminStores(savedStoreId ?? undefined)
     } catch (error) { showFormFailure(form, error, 'Не удалось сохранить магазин.') }
     finally { setStoreBusy(false) }
   }
@@ -776,6 +811,50 @@ export default function App() {
       })
     }
   }
+
+  function selectGlobalStore(id: number, updateHistory = true) {
+    if (id === catalogStoreId) return
+    setCatalogStoreId(id)
+    if (updateHistory) pushStorePath(id)
+    else replaceStorePath(id)
+    setSelectedCategoryIds([])
+    setCatalogSearch('')
+    setCatalogSort('newest')
+    setCatalogPhotoIndexes({})
+    setDetailProduct(null)
+    setBookingProduct(null)
+    setBookingSlots([])
+    setBookingAddress('')
+    void loadCatalog(id)
+    if (user) void loadListings(id)
+
+    if (user?.isStoreAdmin || user?.isSuperAdmin) {
+      if (user.isSuperAdmin || user.storeIds.includes(id)) {
+        setAdminStoreId(id)
+        selectManagedStore(id)
+        void loadAdminProducts(id)
+      } else {
+        setAdminStoreId(null)
+        setAdminProducts([])
+        adminProductsRequestId.current++
+      }
+    }
+  }
+
+  useEffect(() => {
+    const syncStoreFromHistory = () => {
+      const pathStoreId = storeIdFromPath(window.location.pathname)
+      const selectedStoreId = pathStoreId !== null && stores.some((store) => store.id === pathStoreId)
+        ? pathStoreId
+        : stores[0]?.id
+      if (selectedStoreId !== undefined) {
+        if (selectedStoreId !== pathStoreId) replaceStorePath(selectedStoreId)
+        selectGlobalStore(selectedStoreId, false)
+      }
+    }
+    window.addEventListener('popstate', syncStoreFromHistory)
+    return () => window.removeEventListener('popstate', syncStoreFromHistory)
+  }, [catalogStoreId, stores, user, adminStores])
 
   const catalogTimeZoneId = stores.find((store) => store.id === catalogStoreId)?.timeZoneId ?? '+00:00'
   const sortedCatalogCategories = [...catalogCategories].sort((left, right) => russianCollator.compare(left.name, right.name))
@@ -888,14 +967,14 @@ export default function App() {
     <main className="site-shell">
       <header className="topbar">
         <a className="brand" href={catalogHref} onClick={() => setView('catalog')}><span className="brand-mark">К</span><span>Комок<small>комиссионные магазины</small></span></a>
-        <label className="global-store-filter">Магазин<select value={catalogStoreId ?? ''} disabled={stores.length === 0} onChange={(event) => { const id = Number(event.target.value); setCatalogStoreId(id); pushStorePath(id); void loadCatalog(id) }}>
+        <label className="global-store-filter">Магазин<select value={catalogStoreId ?? ''} disabled={stores.length === 0} onChange={(event) => selectGlobalStore(Number(event.target.value))}>
           {stores.length === 0 ? <option value="">Магазинов пока нет</option> : stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
         </select></label>
         <nav className="navigation" aria-label="Основная навигация">
           <button className={view === 'catalog' ? 'nav-link active' : 'nav-link'} onClick={() => setView('catalog')}>Каталог</button>
-          {user && <button className={view === 'listings' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('listings'); void loadListings() }}>Мои товары</button>}
-          {(user?.isStoreAdmin || user?.isSuperAdmin) && <button className={view === 'admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('admin'); void loadAdminStores() }}>Управление</button>}
-          {user?.isSuperAdmin && <button className={view === 'store-admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('store-admin'); void loadAdminStores() }}>Управление магазинами</button>}
+          {user && <button className={view === 'listings' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('listings'); if (catalogStoreId !== null) void loadListings(catalogStoreId) }}>Мои товары</button>}
+          {(user?.isStoreAdmin || user?.isSuperAdmin) && <button className={view === 'admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('admin'); if (catalogStoreId !== null && (user.isSuperAdmin || user.storeIds.includes(catalogStoreId))) void loadAdminProducts(catalogStoreId); else { setAdminStoreId(null); setAdminProducts([]) } }}>Управление</button>}
+          {user?.isSuperAdmin && <button className={view === 'store-admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('store-admin'); if (catalogStoreId !== null) void loadAdminStores(catalogStoreId) }}>Управление магазинами</button>}
           <button className={view === 'account' ? 'nav-link active' : 'nav-link'} onClick={() => setView('account')}>{user ? user.name || user.email : 'Войти'}</button>
         </nav>
       </header>
@@ -971,14 +1050,14 @@ export default function App() {
       </section>}
 
       {view === 'new-listing' && <section className="narrow-section"><p className="eyebrow">Предложить вещь</p><h1>Заявка на комиссию</h1><form className="panel form-stack" onSubmit={createListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
-        <label>Магазин<select name="storeId" required value={listingStoreId ?? ''} onChange={(event) => setListingStoreId(Number(event.target.value))}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
+        <p className="muted">Магазин: {stores.find((store) => store.id === catalogStoreId)?.name ?? 'не выбран'}</p>
         <label>Категория<select name="categoryId" required value={listingForm.categoryId} onChange={(event) => setListingForm({ ...listingForm, categoryId: event.target.value })}><option value="">Выберите категорию</option>{[...activeCategories].sort((left, right) => russianCollator.compare(left.name, right.name)).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
         <label>Название вещи<input name="title" required maxLength={160} value={listingForm.title} onChange={(event) => setListingForm({ ...listingForm, title: event.target.value })} /></label>
         <label>Описание<textarea name="description" required rows={4} maxLength={5000} value={listingForm.description} onChange={(event) => setListingForm({ ...listingForm, description: event.target.value })} /></label>
         <label>Желаемая цена<input name="askingPrice" required type="number" min="0.01" step="0.01" value={listingForm.askingPrice} onChange={(event) => setListingForm({ ...listingForm, askingPrice: event.target.value })} /></label>
          {hasValidListingPrice && (estimatedCommission === null
           ? <p className="form-error">Цена ниже минимального порога выбранного магазина. Увеличьте цену, чтобы отправить заявку.</p>
-           : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === listingStoreId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice! - estimatedCommission, stores.find((store) => store.id === listingStoreId)?.currencyCode ?? 'RUB')}.</p>)}
+           : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === catalogStoreId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice! - estimatedCommission, stores.find((store) => store.id === catalogStoreId)?.currencyCode ?? 'RUB')}.</p>)}
         <div className="form-stack photo-upload"><span>Фотографии (до 10, JPEG, PNG или WebP, до 10 МБ каждая)</span><div className="button-row"><label className="button button-outline button-small">Выбрать файлы<input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => addListingPhotos(event.target.files)} /></label><label className="button button-outline button-small">Снять фото<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => addListingPhotos(event.target.files)} /></label></div>
           {listingPhotos.length > 0 && <div className="photo-strip">{listingPhotos.map((photo, index) => <div className="photo-preview" key={`${photo.name}-${index}`}><img src={listingPhotoPreviews[index]} alt={photo.name} /><button type="button" className="button-danger" onClick={() => setListingPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Убрать</button></div>)}</div>}
           {listingPhotos.length >= 10 && <p className="muted">Достигнут лимит в 10 фотографий.</p>}
@@ -989,8 +1068,8 @@ export default function App() {
 
       {view === 'admin' && <section className="page-section"><p className="eyebrow">Рабочее место</p><h1>Управление</h1>
         {adminStores.length > 0 ? <>
-          <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><label className="store-filter">Магазин<select value={adminStoreId ?? ''} onChange={(event) => { const id = Number(event.target.value); selectManagedStore(id); void loadAdminProducts(id) }}>{adminStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label></div>
-          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (catalogStoreId) await loadCatalog(catalogStoreId); await loadListings() }} onNotice={showNotice} />)}</div>}
+          <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><p className="muted">Магазин: {stores.find((store) => store.id === catalogStoreId)?.name ?? 'не выбран'}</p></div>
+          {adminStoreId === null ? <div className="empty-state"><h3>Нет доступа к выбранному магазину</h3><p>Выберите магазин, которым вы управляете, в меню сверху.</p></div> : adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (catalogStoreId) await loadCatalog(catalogStoreId); if (catalogStoreId) await loadListings(catalogStoreId) }} onNotice={showNotice} />)}</div>}
         </> : <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
       </section>}
 
