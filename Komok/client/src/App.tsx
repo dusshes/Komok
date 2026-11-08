@@ -1023,7 +1023,7 @@ export default function App() {
     }
     return <article className="product-card" key={product.id} onClick={openDetails} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openDetails() }} role="button" tabIndex={0}>
       <div className="product-visual" onClick={(event) => event.stopPropagation()} onPointerDown={changePhotoBySwipe}>
-        {activePhoto ? <img src={activePhoto.thumbnailUrl ?? activePhoto.mediumUrl ?? activePhoto.url} alt={product.title} loading="lazy" /> : <span className="product-symbol">✳</span>}
+        {activePhoto ? <img src={activePhoto.thumbnailUrl ?? activePhoto.mediumUrl ?? activePhoto.url} alt={product.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }} /> : <span className="product-symbol">✳</span>}
         {product.photos.length > 1 && <div className="catalog-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setCatalogPhotoIndex(product.id, index)} />)}</div>}
       </div>
       <div className="product-info">
@@ -1062,7 +1062,7 @@ export default function App() {
       window.addEventListener('pointerup', handlePointerUp, { once: true })
     }
     return <div className="modal-gallery" onPointerDown={changePhotoBySwipe}>
-      {activePhoto ? <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} /> : <span className="product-symbol">✳</span>}
+      {activePhoto ? <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }} /> : <span className="product-symbol">✳</span>}
       {product.photos.length > 1 && <div className="modal-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setDetailPhotoIndex(product.id, index)} />)}</div>}
     </div>
   }
