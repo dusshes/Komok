@@ -333,17 +333,17 @@ export default function App() {
 
   useEffect(() => () => listingPhotoPreviews.forEach((url) => URL.revokeObjectURL(url)), [listingPhotoPreviews])
 
-  const storeCommission = stores.find((store) => store.id === storeId)?.commissionBands ?? []
-  const listingPrice = Number(listingForm.askingPrice)
+  const storeCommission = stores.find((store) => store.id === storeId)?.commissionBands
+  const listingPrice = listingForm.askingPrice.trim() === '' ? null : Number(listingForm.askingPrice)
   const hasValidListingPrice = storeId !== null
-    && listingForm.askingPrice.trim() !== ''
+    && listingPrice !== null
     && Number.isFinite(listingPrice)
     && listingPrice > 0
-  const applicableBand = hasValidListingPrice ? storeCommission.filter((band) => band.priceThreshold <= listingPrice)
+  const applicableBand = hasValidListingPrice && Array.isArray(storeCommission) ? storeCommission.filter((band) => band.priceThreshold <= listingPrice)
     .sort((left, right) => right.priceThreshold - left.priceThreshold)[0]
     : undefined
   const estimatedCommission = applicableBand
-    ? applicableBand.kind === 'Percent' ? listingPrice * applicableBand.rate / 100 : applicableBand.rate
+    ? applicableBand.kind === 'Percent' ? listingPrice! * applicableBand.rate / 100 : applicableBand.rate
     : null
 
   function addListingPhotos(files: FileList | null) {
@@ -425,7 +425,9 @@ export default function App() {
   const loadListings = useCallback(async () => {
     try {
       const data = await api<Listing[]>('/api/listings/mine')
-      setListings(data.map((listing) => ({ ...listing, photos: listing.photos ?? [] })))
+      setListings(Array.isArray(data)
+        ? data.map((listing) => ({ ...listing, photos: Array.isArray(listing.photos) ? listing.photos : [] }))
+        : [])
     }
     catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error') }
   }, [])
@@ -871,7 +873,7 @@ export default function App() {
         <label>Желаемая цена<input name="askingPrice" required type="number" min="0.01" step="0.01" value={listingForm.askingPrice} onChange={(event) => setListingForm({ ...listingForm, askingPrice: event.target.value })} /></label>
          {hasValidListingPrice && (estimatedCommission === null
           ? <p className="form-error">Цена ниже минимального порога выбранного магазина. Увеличьте цену, чтобы отправить заявку.</p>
-          : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice - estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}.</p>)}
+           : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice! - estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}.</p>)}
         <div className="form-stack photo-upload"><span>Фотографии (до 10, JPEG, PNG или WebP, до 10 МБ каждая)</span><div className="button-row"><label className="button button-outline button-small">Выбрать файлы<input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => addListingPhotos(event.target.files)} /></label><label className="button button-outline button-small">Снять фото<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => addListingPhotos(event.target.files)} /></label></div>
           {listingPhotos.length > 0 && <div className="photo-strip">{listingPhotos.map((photo, index) => <div className="photo-preview" key={`${photo.name}-${index}`}><img src={listingPhotoPreviews[index]} alt={photo.name} /><button type="button" className="button-danger" onClick={() => setListingPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Убрать</button></div>)}</div>}
           {listingPhotos.length >= 10 && <p className="muted">Достигнут лимит в 10 фотографий.</p>}
