@@ -108,6 +108,27 @@ const listingLabels: Record<string, string> = {
   Cancelled: 'Отменена',
 }
 
+function storeIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/stores\/(\d+)(?:\/|$)/)
+  if (!match) return null
+  const id = Number(match[1])
+  return Number.isSafeInteger(id) && id > 0 ? id : null
+}
+
+function storePath(storeId: number): string {
+  const pathname = window.location.pathname
+  if (/^\/stores\/\d+(?:\/|$)/.test(pathname)) return pathname.replace(/^\/stores\/\d+/, `/stores/${storeId}`)
+  return `/stores/${storeId}${pathname === '/' ? '' : pathname}`
+}
+
+function replaceStorePath(storeId: number) {
+  window.history.replaceState({}, '', `${storePath(storeId)}${window.location.search}${window.location.hash}`)
+}
+
+function pushStorePath(storeId: number) {
+  window.history.pushState({}, '', `${storePath(storeId)}${window.location.search}${window.location.hash}`)
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
@@ -257,7 +278,8 @@ function makeStoreForm(): {
 
 export default function App() {
   const [stores, setStores] = useState<Store[]>([])
-  const [storeId, setStoreId] = useState<number | null>(null)
+  const [catalogStoreId, setCatalogStoreId] = useState<number | null>(null)
+  const [listingStoreId, setListingStoreId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([])
   const [activeCategories, setActiveCategories] = useState<Category[]>([])
@@ -314,9 +336,9 @@ export default function App() {
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [detailProduct])
 
-  const storeCommission = stores.find((store) => store.id === storeId)?.commissionBands
+  const storeCommission = stores.find((store) => store.id === listingStoreId)?.commissionBands
   const listingPrice = listingForm.askingPrice.trim() === '' ? null : Number(listingForm.askingPrice)
-  const hasValidListingPrice = storeId !== null
+  const hasValidListingPrice = listingStoreId !== null
     && listingPrice !== null
     && Number.isFinite(listingPrice)
     && listingPrice > 0
@@ -483,8 +505,12 @@ export default function App() {
       const currentStores = await api<Store[]>('/api/stores').catch(() => [] as Store[])
       setStores(currentStores)
       if (currentStores.length > 0) {
-        setStoreId(currentStores[0].id)
-        await loadCatalog(currentStores[0].id)
+        const requestedStoreId = storeIdFromPath(window.location.pathname)
+        const selectedStore = currentStores.find((store) => store.id === requestedStoreId) ?? currentStores[0]
+        if (selectedStore.id !== requestedStoreId) replaceStorePath(selectedStore.id)
+        setCatalogStoreId(selectedStore.id)
+        setListingStoreId(currentStores[0].id)
+        await loadCatalog(selectedStore.id)
       }
       const currentUser = await loadAccount()
       if (currentUser) {
@@ -564,7 +590,7 @@ export default function App() {
   async function createListing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
-    if (storeId === null || !hasValidListingPrice) {
+    if (listingStoreId === null || !hasValidListingPrice) {
       const priceControl = form.elements.namedItem('askingPrice')
       if (priceControl instanceof HTMLInputElement) {
         setFieldError(priceControl, 'Введите положительную цену.')
@@ -575,7 +601,7 @@ export default function App() {
     setListingBusy(true)
     try {
       const body = new FormData()
-      body.set('storeId', String(storeId))
+      body.set('storeId', String(listingStoreId))
       body.set('categoryId', listingForm.categoryId)
       body.set('title', listingForm.title)
       body.set('description', listingForm.description)
@@ -605,7 +631,7 @@ export default function App() {
       })
       setNewCategoryName('')
       await Promise.all([loadAdminCategories(), loadActiveCategories()])
-      if (storeId) await loadCatalog(storeId)
+      if (catalogStoreId) await loadCatalog(catalogStoreId)
       showNotice('Категория добавлена.', 'success')
     } catch (error) {
       showFormFailure(form, error, 'Не удалось добавить категорию.')
@@ -640,7 +666,7 @@ export default function App() {
       setDetailProduct((current) => current && current.id === bookingResult.productId
         ? { ...current, status: 'Reserved', reservedUntil: bookingResult.expiresAt }
         : current)
-      if (storeId) await loadCatalog(storeId)
+      if (catalogStoreId) await loadCatalog(catalogStoreId)
     } catch (error) {
       showFormFailure(form, error, 'Не удалось забронировать товар.')
     }
@@ -751,7 +777,7 @@ export default function App() {
     }
   }
 
-  const catalogTimeZoneId = stores.find((store) => store.id === storeId)?.timeZoneId ?? '+00:00'
+  const catalogTimeZoneId = stores.find((store) => store.id === catalogStoreId)?.timeZoneId ?? '+00:00'
   const sortedCatalogCategories = [...catalogCategories].sort((left, right) => russianCollator.compare(left.name, right.name))
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU')
   const selectedCategories = new Set(selectedCategoryIds)
@@ -856,10 +882,15 @@ export default function App() {
     </form>
   }
 
+  const catalogHref = catalogStoreId === null ? '#catalog' : `${storePath(catalogStoreId)}#catalog`
+
   return (
     <main className="site-shell">
       <header className="topbar">
-        <a className="brand" href="#catalog" onClick={() => setView('catalog')}><span className="brand-mark">К</span><span>Комок<small>комиссионные магазины</small></span></a>
+        <a className="brand" href={catalogHref} onClick={() => setView('catalog')}><span className="brand-mark">К</span><span>Комок<small>комиссионные магазины</small></span></a>
+        <label className="global-store-filter">Магазин<select value={catalogStoreId ?? ''} disabled={stores.length === 0} onChange={(event) => { const id = Number(event.target.value); setCatalogStoreId(id); pushStorePath(id); void loadCatalog(id) }}>
+          {stores.length === 0 ? <option value="">Магазинов пока нет</option> : stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+        </select></label>
         <nav className="navigation" aria-label="Основная навигация">
           <button className={view === 'catalog' ? 'nav-link active' : 'nav-link'} onClick={() => setView('catalog')}>Каталог</button>
           {user && <button className={view === 'listings' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('listings'); void loadListings() }}>Мои товары</button>}
@@ -888,13 +919,8 @@ export default function App() {
           <div className="hero-art" aria-hidden="true"><div className="sun" /><div className="vase vase-one" /><div className="vase vase-two" /><div className="book book-one" /><div className="book book-two" /></div>
         </div>
 
-        <div className="section-heading"><div><p className="eyebrow">Подборка магазина</p><h2>Каталог</h2></div>
-          <label className="store-filter">Магазин<select value={storeId ?? ''} onChange={(event) => { const id = Number(event.target.value); setStoreId(id); void loadCatalog(id) }}>
-            {stores.length === 0 && <option value="">Пока нет магазинов</option>}
-            {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
-          </select></label>
-        </div>
-        {storeId !== null && <div className="catalog-controls">
+        <div className="section-heading"><div><p className="eyebrow">Подборка магазина</p><h2>Каталог</h2></div></div>
+        {catalogStoreId !== null && <div className="catalog-controls">
           <label className="catalog-search">Поиск<input aria-label="Поиск по названию и описанию" placeholder="Название или описание" value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} /></label>
           <details className="category-filter"><summary>{selectedCategoryIds.length === 0 ? 'Все категории' : `Категории: ${selectedCategoryIds.length}`}</summary>
             <div className="category-options">{sortedCatalogCategories.map((category) => <label className="check-row" key={category.id}>
@@ -945,14 +971,14 @@ export default function App() {
       </section>}
 
       {view === 'new-listing' && <section className="narrow-section"><p className="eyebrow">Предложить вещь</p><h1>Заявка на комиссию</h1><form className="panel form-stack" onSubmit={createListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
-        <label>Магазин<select name="storeId" required value={storeId ?? ''} onChange={(event) => setStoreId(Number(event.target.value))}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
+        <label>Магазин<select name="storeId" required value={listingStoreId ?? ''} onChange={(event) => setListingStoreId(Number(event.target.value))}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
         <label>Категория<select name="categoryId" required value={listingForm.categoryId} onChange={(event) => setListingForm({ ...listingForm, categoryId: event.target.value })}><option value="">Выберите категорию</option>{[...activeCategories].sort((left, right) => russianCollator.compare(left.name, right.name)).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
         <label>Название вещи<input name="title" required maxLength={160} value={listingForm.title} onChange={(event) => setListingForm({ ...listingForm, title: event.target.value })} /></label>
         <label>Описание<textarea name="description" required rows={4} maxLength={5000} value={listingForm.description} onChange={(event) => setListingForm({ ...listingForm, description: event.target.value })} /></label>
         <label>Желаемая цена<input name="askingPrice" required type="number" min="0.01" step="0.01" value={listingForm.askingPrice} onChange={(event) => setListingForm({ ...listingForm, askingPrice: event.target.value })} /></label>
          {hasValidListingPrice && (estimatedCommission === null
           ? <p className="form-error">Цена ниже минимального порога выбранного магазина. Увеличьте цену, чтобы отправить заявку.</p>
-           : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice! - estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}.</p>)}
+           : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === listingStoreId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice! - estimatedCommission, stores.find((store) => store.id === listingStoreId)?.currencyCode ?? 'RUB')}.</p>)}
         <div className="form-stack photo-upload"><span>Фотографии (до 10, JPEG, PNG или WebP, до 10 МБ каждая)</span><div className="button-row"><label className="button button-outline button-small">Выбрать файлы<input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => addListingPhotos(event.target.files)} /></label><label className="button button-outline button-small">Снять фото<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => addListingPhotos(event.target.files)} /></label></div>
           {listingPhotos.length > 0 && <div className="photo-strip">{listingPhotos.map((photo, index) => <div className="photo-preview" key={`${photo.name}-${index}`}><img src={listingPhotoPreviews[index]} alt={photo.name} /><button type="button" className="button-danger" onClick={() => setListingPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Убрать</button></div>)}</div>}
           {listingPhotos.length >= 10 && <p className="muted">Достигнут лимит в 10 фотографий.</p>}
@@ -964,7 +990,7 @@ export default function App() {
       {view === 'admin' && <section className="page-section"><p className="eyebrow">Рабочее место</p><h1>Управление</h1>
         {adminStores.length > 0 ? <>
           <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><label className="store-filter">Магазин<select value={adminStoreId ?? ''} onChange={(event) => { const id = Number(event.target.value); selectManagedStore(id); void loadAdminProducts(id) }}>{adminStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label></div>
-          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (storeId) await loadCatalog(storeId); await loadListings() }} onNotice={showNotice} />)}</div>}
+          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (catalogStoreId) await loadCatalog(catalogStoreId); await loadListings() }} onNotice={showNotice} />)}</div>}
         </> : <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
       </section>}
 
@@ -1008,7 +1034,7 @@ export default function App() {
           </form>
           <div className="category-admin-list">{adminCategories.map((category) => <AdminCategoryRow key={category.id} category={category} onSaved={async () => {
             await Promise.all([loadAdminCategories(), loadActiveCategories()])
-            if (storeId) await loadCatalog(storeId)
+            if (catalogStoreId) await loadCatalog(catalogStoreId)
           }} onNotice={showNotice} />)}</div>
         </section>}
       </section>}
