@@ -70,6 +70,7 @@ app.UseAuthorization();
 
 app.MapAuthApi();
 app.MapCatalogApi();
+app.MapCategoryApi();
 app.MapListingsApi();
 app.MapAdminApi();
 

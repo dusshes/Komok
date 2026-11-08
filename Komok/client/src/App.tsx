@@ -10,13 +10,19 @@ type Store = {
 }
 type Product = {
   id: number
+  categoryId: number
+  category: string
   title: string
   description: string
   askingPrice: number
+  publishedAt: string | null
   currencyCode: string
   status: string
   reservedUntil: string | null
 }
+type CatalogCategory = { id: number; name: string }
+type Category = CatalogCategory & { isActive: boolean }
+type CatalogResponse = { categories: CatalogCategory[]; products: Product[] }
 type Listing = {
   id: number
   title: string
@@ -36,6 +42,8 @@ type Listing = {
 }
 type AdminProduct = {
   id: number
+  categoryId: number
+  category: string
   title: string
   description: string
   askingPrice: number
@@ -79,6 +87,7 @@ type CurrentUser = {
   storeIds: number[]
 }
 
+const russianCollator = new Intl.Collator('ru-RU', { sensitivity: 'base', numeric: true })
 const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
 const listingLabels: Record<string, string> = {
   Submitted: 'На проверке',
@@ -270,6 +279,12 @@ export default function App() {
   const [stores, setStores] = useState<Store[]>([])
   const [storeId, setStoreId] = useState<number | null>(null)
   const [products, setProducts] = useState<Product[]>([])
+  const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([])
+  const [activeCategories, setActiveCategories] = useState<Category[]>([])
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([])
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogSort, setCatalogSort] = useState<'newest' | 'alphabetical' | 'price-asc' | 'price-desc'>('newest')
+  const [groupByCategory, setGroupByCategory] = useState(false)
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [view, setView] = useState<'catalog' | 'account' | 'listings' | 'new-listing' | 'admin'>('catalog')
   const [notice, setNotice] = useState('')
@@ -284,7 +299,7 @@ export default function App() {
   const [payoutDetails, setPayoutDetails] = useState('')
   const [listings, setListings] = useState<Listing[]>([])
   const [relativeClock, setRelativeClock] = useState(() => Date.now())
-  const [listingForm, setListingForm] = useState({ title: '', description: '', askingPrice: '' })
+  const [listingForm, setListingForm] = useState({ title: '', description: '', askingPrice: '', categoryId: '' })
   const [listingBusy, setListingBusy] = useState(false)
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null)
   const [booking, setBooking] = useState({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
@@ -294,6 +309,9 @@ export default function App() {
   const [adminStores, setAdminStores] = useState<ManagedStore[]>([])
   const [adminStoreId, setAdminStoreId] = useState<number | null>(null)
   const [adminProducts, setAdminProducts] = useState<AdminProduct[]>([])
+  const [adminCategories, setAdminCategories] = useState<Category[]>([])
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [categoryBusy, setCategoryBusy] = useState(false)
   const [storeForm, setStoreForm] = useState(makeStoreForm)
   const [storeBusy, setStoreBusy] = useState(false)
   const [adminEmail, setAdminEmail] = useState('')
@@ -302,12 +320,25 @@ export default function App() {
   const loadCatalog = useCallback(async (id: number) => {
     setLoadingCatalog(true)
     try {
-      setProducts(await api<Product[]>(`/api/catalog?storeId=${id}`))
+      const catalog = await api<CatalogResponse>(`/api/catalog?storeId=${id}`)
+      setProducts(catalog.products)
+      setCatalogCategories(catalog.categories)
+      setSelectedCategoryIds((current) => current.filter((categoryId) => catalog.categories.some((category) => category.id === categoryId)))
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось загрузить каталог.')
     } finally {
       setLoadingCatalog(false)
     }
+  }, [])
+
+  const loadActiveCategories = useCallback(async () => {
+    try { setActiveCategories(await api<Category[]>('/api/categories/active')) }
+    catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось загрузить категории.') }
+  }, [])
+
+  const loadAdminCategories = useCallback(async () => {
+    try { setAdminCategories(await api<Category[]>('/api/admin/categories')) }
+    catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось загрузить категории.') }
   }, [])
 
   const loadAccount = useCallback(async () => {
@@ -381,6 +412,7 @@ export default function App() {
         window.history.replaceState({}, '', window.location.pathname)
       }
 
+      await loadActiveCategories()
       const currentStores = await api<Store[]>('/api/stores').catch(() => [] as Store[])
       setStores(currentStores)
       if (currentStores.length > 0) {
@@ -390,6 +422,7 @@ export default function App() {
       const currentUser = await loadAccount()
       if (currentUser) {
         await loadListings()
+        if (currentUser.isSuperAdmin) await loadAdminCategories()
         if (currentUser.isStoreAdmin || currentUser.isSuperAdmin) await loadAdminStores()
       }
     })()
@@ -441,6 +474,7 @@ export default function App() {
       const current = await loadAccount()
       if (current) {
         await loadListings()
+        if (current.isSuperAdmin) await loadAdminCategories()
         if (current.isStoreAdmin || current.isSuperAdmin) await loadAdminStores()
         setView(current.isStoreAdmin || current.isSuperAdmin ? 'admin' : 'listings')
       }
@@ -469,9 +503,9 @@ export default function App() {
     try {
       await api('/api/listings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...listingForm, storeId, askingPrice: Number(listingForm.askingPrice) }),
+        body: JSON.stringify({ ...listingForm, storeId, categoryId: Number(listingForm.categoryId), askingPrice: Number(listingForm.askingPrice) }),
       })
-      setListingForm({ title: '', description: '', askingPrice: '' })
+      setListingForm({ title: '', description: '', askingPrice: '', categoryId: '' })
       setNotice('Заявка отправлена администратору магазина.')
       await loadListings()
       setView('listings')
@@ -479,6 +513,26 @@ export default function App() {
       showFormFailure(form, error, 'Не удалось отправить заявку.')
     } finally {
       setListingBusy(false)
+    }
+  }
+
+  async function createCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    setCategoryBusy(true)
+    try {
+      await api('/api/admin/categories', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCategoryName }),
+      })
+      setNewCategoryName('')
+      await Promise.all([loadAdminCategories(), loadActiveCategories()])
+      if (storeId) await loadCatalog(storeId)
+      setNotice('Категория добавлена.')
+    } catch (error) {
+      showFormFailure(form, error, 'Не удалось добавить категорию.')
+    } finally {
+      setCategoryBusy(false)
     }
   }
 
@@ -614,6 +668,46 @@ export default function App() {
   }
 
   const catalogTimeZoneId = stores.find((store) => store.id === storeId)?.timeZoneId ?? '+00:00'
+  const sortedCatalogCategories = [...catalogCategories].sort((left, right) => russianCollator.compare(left.name, right.name))
+  const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('ru-RU')
+  const selectedCategories = new Set(selectedCategoryIds)
+  const visibleProducts = products
+    .filter((product) => selectedCategories.size === 0 || selectedCategories.has(product.categoryId))
+    .filter((product) => !normalizedSearch || `${product.title}\n${product.description}`.toLocaleLowerCase('ru-RU').includes(normalizedSearch))
+    .sort((left, right) => {
+      const titleOrder = russianCollator.compare(left.title, right.title)
+      if (catalogSort === 'alphabetical') return titleOrder || left.id - right.id
+      if (catalogSort === 'price-asc') return left.askingPrice - right.askingPrice || titleOrder || left.id - right.id
+      if (catalogSort === 'price-desc') return right.askingPrice - left.askingPrice || titleOrder || left.id - right.id
+      const leftPublished = left.publishedAt ? Date.parse(left.publishedAt) : 0
+      const rightPublished = right.publishedAt ? Date.parse(right.publishedAt) : 0
+      return (Number.isFinite(rightPublished) ? rightPublished : 0) - (Number.isFinite(leftPublished) ? leftPublished : 0)
+        || titleOrder || left.id - right.id
+    })
+  const categoryGroups = sortedCatalogCategories.map((category) => ({
+    category,
+    products: visibleProducts.filter((product) => product.categoryId === category.id),
+  })).filter((group) => group.products.length > 0)
+
+  function renderProductCard(product: Product) {
+    return <article className="product-card" key={product.id}>
+      <div className="product-visual"><span className="product-category">{product.category}</span><span className="product-symbol">✳</span></div>
+      <div className="product-info"><h3>{product.title}</h3><p>{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
+        {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
+      </div>
+      {bookingProduct?.id === product.id && <form className="booking-form" onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+        <h4>Когда вы приедете?</h4>
+        {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
+        {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
+        {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
+        <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
+        <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
+        <label>Имя (необязательно)<input name="name" maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
+        <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
+      </form>}
+      </div>
+    </article>
+  }
 
   return (
     <main className="site-shell">
@@ -641,24 +735,22 @@ export default function App() {
             {stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
           </select></label>
         </div>
-        {loadingCatalog ? <p className="empty-state">Загружаем товары…</p> : products.length === 0 ? <div className="empty-state"><span>✳</span><h3>Пока нет товаров на витрине</h3><p>Загляните позже или выберите другой магазин.</p></div> :
-          <div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}>
-            <div className="product-visual"><span className="product-category">Комок · находка</span><span className="product-symbol">✳</span></div>
-            <div className="product-info"><h3>{product.title}</h3><p>{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
-              {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
-            </div>
-            {bookingProduct?.id === product.id && <form className="booking-form" onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
-              <h4>Когда вы приедете?</h4>
-              {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
-              {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
-              {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
-              <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
-              <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
-              <label>Имя (необязательно)<input name="name" maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
-              <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
-            </form>}
-            </div>
-          </article>)}</div>}
+        {storeId !== null && <div className="catalog-controls">
+          <label className="catalog-search">Поиск<input aria-label="Поиск по названию и описанию" placeholder="Название или описание" value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} /></label>
+          <details className="category-filter"><summary>{selectedCategoryIds.length === 0 ? 'Все категории' : `Категории: ${selectedCategoryIds.length}`}</summary>
+            <div className="category-options">{sortedCatalogCategories.map((category) => <label className="check-row" key={category.id}>
+              <input type="checkbox" checked={selectedCategoryIds.includes(category.id)} onChange={(event) => setSelectedCategoryIds((current) => event.target.checked ? [...current, category.id] : current.filter((id) => id !== category.id))} />{category.name}
+            </label>)}</div>
+          </details>
+          <label className="catalog-sort">Сортировка<select value={catalogSort} onChange={(event) => setCatalogSort(event.target.value as typeof catalogSort)}>
+            <option value="newest">Сначала новые</option><option value="alphabetical">По алфавиту</option><option value="price-asc">Сначала дешевле</option><option value="price-desc">Сначала дороже</option>
+          </select></label>
+          <label className="check-row catalog-grouping"><input type="checkbox" checked={groupByCategory} onChange={(event) => setGroupByCategory(event.target.checked)} />Группировать по категориям</label>
+          {(selectedCategoryIds.length > 0 || catalogSearch) && <button className="button-quiet catalog-reset" type="button" onClick={() => { setSelectedCategoryIds([]); setCatalogSearch('') }}>Сбросить фильтры</button>}
+        </div>}
+        {loadingCatalog ? <p className="empty-state">Загружаем товары…</p> : products.length === 0 ? <div className="empty-state"><span>✳</span><h3>Пока нет товаров на витрине</h3><p>Загляните позже или выберите другой магазин.</p></div> : visibleProducts.length === 0 ? <div className="empty-state"><h3>Ничего не найдено</h3><p>Измените условия поиска или фильтры.</p><button className="button button-outline" onClick={() => { setSelectedCategoryIds([]); setCatalogSearch('') }}>Сбросить фильтры</button></div> : groupByCategory ?
+          <div className="catalog-groups">{categoryGroups.map(({ category, products: groupProducts }) => <section className="category-group" key={category.id}><h3>{category.name}</h3><div className="product-grid">{groupProducts.map(renderProductCard)}</div></section>)}</div> :
+          <div className="product-grid">{visibleProducts.map(renderProductCard)}</div>}
       </section>}
 
       {view === 'account' && <section className="narrow-section">
@@ -693,6 +785,7 @@ export default function App() {
 
       {view === 'new-listing' && <section className="narrow-section"><p className="eyebrow">Предложить вещь</p><h1>Заявка на комиссию</h1><form className="panel form-stack" onSubmit={createListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
         <label>Магазин<select name="storeId" required value={storeId ?? ''} onChange={(event) => setStoreId(Number(event.target.value))}>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
+        <label>Категория<select name="categoryId" required value={listingForm.categoryId} onChange={(event) => setListingForm({ ...listingForm, categoryId: event.target.value })}><option value="">Выберите категорию</option>{[...activeCategories].sort((left, right) => russianCollator.compare(left.name, right.name)).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
         <label>Название вещи<input name="title" required maxLength={160} value={listingForm.title} onChange={(event) => setListingForm({ ...listingForm, title: event.target.value })} /></label>
         <label>Описание<textarea name="description" required rows={4} maxLength={5000} value={listingForm.description} onChange={(event) => setListingForm({ ...listingForm, description: event.target.value })} /></label>
         <label>Желаемая цена<input name="askingPrice" required type="number" min="0.01" step="0.01" value={listingForm.askingPrice} onChange={(event) => setListingForm({ ...listingForm, askingPrice: event.target.value })} /></label>
@@ -732,9 +825,20 @@ export default function App() {
             <button className="button" disabled={adminStores.length === 0}>Назначить</button>
           </form></section>
         </div>}
+        {user?.isSuperAdmin && <section className="panel category-admin-panel">
+          <div className="section-heading compact"><div><h2>Категории товаров</h2><p className="muted">Создавайте категории, переименовывайте их и скрывайте из новых заявок.</p></div></div>
+          <form className="category-create-row" onSubmit={createCategory} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+            <label>Новая категория<input name="name" required maxLength={120} value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} /></label>
+            <button className="button button-small" disabled={categoryBusy || !newCategoryName.trim()}>{categoryBusy ? 'Сохраняем…' : 'Добавить категорию'}</button>
+          </form>
+          <div className="category-admin-list">{adminCategories.map((category) => <AdminCategoryRow key={category.id} category={category} onSaved={async () => {
+            await Promise.all([loadAdminCategories(), loadActiveCategories()])
+            if (storeId) await loadCatalog(storeId)
+          }} onNotice={setNotice} />)}</div>
+        </section>}
         {adminStores.length > 0 ? <>
           <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><label className="store-filter">Магазин<select value={adminStoreId ?? ''} onChange={(event) => { const id = Number(event.target.value); selectManagedStore(id); void loadAdminProducts(id) }}>{adminStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label></div>
-          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); await loadListings() }} onNotice={setNotice} />)}</div>}
+          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (storeId) await loadCatalog(storeId); await loadListings() }} onNotice={setNotice} />)}</div>}
         </> : !user?.isSuperAdmin && <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
       </section>}
 
@@ -743,17 +847,68 @@ export default function App() {
   )
 }
 
-function AdminProductCard({ product, onChanged, onNotice }: {
+function AdminCategoryRow({ category, onSaved, onNotice }: {
+  category: Category
+  onSaved: () => Promise<void>
+  onNotice: (message: string) => void
+}) {
+  const [name, setName] = useState(category.name)
+  const [isActive, setIsActive] = useState(category.isActive)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setName(category.name)
+    setIsActive(category.isActive)
+  }, [category.name, category.isActive])
+
+  async function save(nextIsActive: boolean, form?: HTMLFormElement) {
+    setBusy(true)
+    try {
+      await api(`/api/admin/categories/${category.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, isActive: nextIsActive }),
+      })
+      setIsActive(nextIsActive)
+      await onSaved()
+      onNotice('Категория сохранена.')
+    } catch (error) {
+      if (form) showFormFailure(form, error, 'Не удалось сохранить категорию.')
+      else onNotice(error instanceof Error ? error.message : 'Не удалось сохранить категорию.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function saveName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void save(isActive, event.currentTarget)
+  }
+
+  return <form className="category-admin-row" onSubmit={saveName} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+    <label>Название<input name="name" required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>
+    <span className={`category-status ${isActive ? 'is-active' : ''}`}>{isActive ? 'Активна' : 'Неактивна'}</span>
+    <div className="button-row">
+      <button className="button button-small" disabled={busy || !name.trim()}>Сохранить</button>
+      <button className="button-quiet" type="button" disabled={busy} onClick={() => void save(!isActive)}>{isActive ? 'Отключить' : 'Включить'}</button>
+    </div>
+  </form>
+}
+
+function AdminProductCard({ product, activeCategories, onChanged, onNotice }: {
   product: AdminProduct
+  activeCategories: Category[]
   onChanged: () => Promise<void>
   onNotice: (message: string) => void
 }) {
   const [title, setTitle] = useState(product.title)
   const [description, setDescription] = useState(product.description)
   const [price, setPrice] = useState(String(product.askingPrice))
+  const [categoryId, setCategoryId] = useState(String(product.categoryId))
   const [commissionPercent, setCommissionPercent] = useState(product.commissionKind === 'Percent' ? String(product.commissionRate ?? '') : '')
   const [salePrice, setSalePrice] = useState('')
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => setCategoryId(String(product.categoryId)), [product.categoryId])
 
   async function action(path: string, body?: unknown, form?: HTMLFormElement) {
     setBusy(true)
@@ -776,6 +931,7 @@ function AdminProductCard({ product, onChanged, onNotice }: {
     void action(`/api/admin/products/${product.id}/review`, {
       action: 'approve', title, description, askingPrice: Number(price),
       commissionPercent: commissionPercent === '' ? null : Number(commissionPercent),
+      categoryId: Number(categoryId),
     }, form)
   }
 
@@ -791,6 +947,10 @@ function AdminProductCard({ product, onChanged, onNotice }: {
     {['Submitted', 'NeedsRevision'].includes(product.listingStatus) && <form className="form-stack review-fields" onSubmit={approveListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
       <label>Название<input name="title" required value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>Описание<textarea name="description" required rows={3} value={description} maxLength={5000} onChange={(event) => setDescription(event.target.value)} /></label>
+      <label>Категория<select name="categoryId" required value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+        {!activeCategories.some((category) => category.id === product.categoryId) && <option value={product.categoryId}>{product.category} (неактивна)</option>}
+        {[...activeCategories].sort((left, right) => russianCollator.compare(left.name, right.name)).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+      </select></label>
       <div className="two-columns"><label>Цена<input name="askingPrice" type="number" required min="0.01" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} /></label><label>Комиссия, % (оставьте пустой для сетки)<input name="commissionPercent" type="number" min="0" max="100" step="0.01" value={commissionPercent} onChange={(event) => setCommissionPercent(event.target.value)} /></label></div>
       <div className="button-row"><button className="button button-small" type="submit" disabled={busy}>Одобрить и ждать доставку</button><button className="button button-outline button-small" type="button" disabled={busy} onClick={() => void action(`/api/admin/products/${product.id}/review`, { action: 'revision' })}>Вернуть на доработку</button><button className="button-danger" type="button" disabled={busy} onClick={() => void action(`/api/admin/products/${product.id}/review`, { action: 'reject' })}>Отказать</button></div>
     </form>}

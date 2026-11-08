@@ -63,22 +63,31 @@ public static class CatalogApi
                 .SetProperty(product => product.BuyerPhone, (string?)null)
                 .SetProperty(product => product.BuyerEmail, (string?)null), cancellationToken);
 
+        var categories = await db.Categories.AsNoTracking()
+            .Where(category => category.IsActive || db.Products.Any(product => product.CategoryId == category.Id
+                && product.StoreId == storeId && product.ListingStatus == ListingStatus.OnSale))
+            .OrderBy(category => category.Name)
+            .Select(category => new { category.Id, category.Name })
+            .ToListAsync(cancellationToken);
+
         var products = await db.Products.AsNoTracking()
             .Where(product => product.StoreId == storeId && product.ListingStatus == ListingStatus.OnSale)
-            .OrderByDescending(product => product.CreatedAt)
             .Select(product => new
             {
                 product.Id,
+                product.CategoryId,
+                Category = product.Category.Name,
                 product.Title,
                 product.Description,
                 product.AskingPrice,
+                product.PublishedAt,
                 product.Store.CurrencyCode,
                 Status = product.InventoryStatus.ToString(),
                 product.ReservedUntil
             })
             .ToListAsync(cancellationToken);
 
-        return Results.Ok(products);
+        return Results.Ok(new { categories, products });
     }
 
     private static async Task<IResult> GetBookingOptionsAsync(

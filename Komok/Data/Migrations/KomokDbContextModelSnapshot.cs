@@ -205,6 +205,9 @@ namespace Komok.Data.Migrations
                     b.Property<string>("BuyerPhone")
                         .HasColumnType("text");
 
+                    b.Property<int>("CategoryId")
+                        .HasColumnType("integer");
+
                     b.Property<decimal?>("CommissionAmount")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");
@@ -237,6 +240,9 @@ namespace Komok.Data.Migrations
                     b.Property<int>("PayoutStatus")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("ReservedUntil")
                         .HasColumnType("timestamp with time zone");
 
@@ -258,11 +264,44 @@ namespace Komok.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CategoryId");
+
                     b.HasIndex("SellerId");
 
                     b.HasIndex("StoreId", "ListingStatus", "InventoryStatus");
 
                     b.ToTable("Products");
+                });
+
+            modelBuilder.Entity("Komok.Models.ProductCategory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("Categories", (string)null);
                 });
 
             modelBuilder.Entity("Komok.Models.Store", b =>
@@ -491,6 +530,12 @@ namespace Komok.Data.Migrations
 
             modelBuilder.Entity("Komok.Models.Product", b =>
                 {
+                    b.HasOne("Komok.Models.ProductCategory", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Komok.Models.ApplicationUser", "Seller")
                         .WithMany()
                         .HasForeignKey("SellerId")
@@ -502,6 +547,8 @@ namespace Komok.Data.Migrations
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Category");
 
                     b.Navigation("Seller");
 

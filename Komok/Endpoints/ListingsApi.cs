@@ -49,6 +49,9 @@ public static class ListingsApi
         var store = await db.Stores.Include(item => item.CommissionBands)
             .SingleOrDefaultAsync(item => item.Id == request.StoreId && item.IsActive, cancellationToken);
         if (store is null) return ValidationErrors.BadRequest(("storeId", "Выберите действующий магазин."));
+        var category = await db.Categories.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == request.CategoryId && item.IsActive, cancellationToken);
+        if (category is null) return ValidationErrors.BadRequest(("categoryId", "Выберите активную категорию товара."));
         var band = store.CommissionBands.Where(item => item.PriceThreshold <= request.AskingPrice)
             .OrderByDescending(item => item.PriceThreshold).FirstOrDefault();
         if (band is null)
@@ -57,6 +60,7 @@ public static class ListingsApi
         var product = new Product
         {
             StoreId = store.Id,
+            CategoryId = category.Id,
             SellerId = seller.Id,
             Title = request.Title.Trim(),
             Description = request.Description.Trim(),
@@ -165,6 +169,8 @@ public static class ListingsApi
                 item.AskingPrice,
                 item.CommissionKind,
                 item.CommissionRate,
+                item.CategoryId,
+                Category = item.Category.Name,
                 item.ListingStatus,
                 item.InventoryStatus,
                 item.CreatedAt,
@@ -222,10 +228,15 @@ public static class ListingsApi
                     reviewErrors.Add(("description", "Укажите описание длиной не более 5000 символов."));
                 if (request.AskingPrice is null or <= 0)
                     reviewErrors.Add(("askingPrice", "Введите цену больше нуля."));
+                if (request.CategoryId is null)
+                    reviewErrors.Add(("categoryId", "Выберите категорию товара."));
                 if (reviewErrors.Count > 0)
                     return ValidationErrors.BadRequest(reviewErrors.ToArray());
                 if (request.CommissionPercent is < 0 or > 100)
                     return ValidationErrors.BadRequest(("commissionPercent", "Процент комиссии должен быть от 0 до 100."));
+                if (request.CategoryId != product.CategoryId && !await db.Categories.AnyAsync(
+                        category => category.Id == request.CategoryId && category.IsActive, cancellationToken))
+                    return ValidationErrors.BadRequest(("categoryId", "Выберите активную категорию товара."));
                 var band = product.Store.CommissionBands.Where(item => item.PriceThreshold <= request.AskingPrice)
                     .OrderByDescending(item => item.PriceThreshold).FirstOrDefault();
                 if (band is null)
@@ -233,6 +244,7 @@ public static class ListingsApi
                 product.Title = request.Title!.Trim();
                 product.Description = request.Description!.Trim();
                 product.AskingPrice = request.AskingPrice!.Value;
+                product.CategoryId = request.CategoryId!.Value;
                 product.CommissionKind = request.CommissionPercent.HasValue ? CommissionKind.Percent : band.Kind;
                 product.CommissionRate = request.CommissionPercent ?? band.Rate;
                 product.ListingStatus = ListingStatus.AwaitingDelivery;
@@ -264,6 +276,7 @@ public static class ListingsApi
             return Results.Conflict(new { message = "Подтвердить получение можно после отметки продавца о доставке." });
         product.ListingStatus = ListingStatus.OnSale;
         product.InventoryStatus = InventoryStatus.Available;
+        product.PublishedAt = DateTimeOffset.UtcNow;
         QueueStatusEmail(db, product.Seller, "Товар принят магазином", $"Товар «{product.Title}» принят и размещён на продаже.");
         await db.SaveChangesAsync(cancellationToken);
         return Results.Ok(new { product.Id, Status = product.ListingStatus.ToString() });

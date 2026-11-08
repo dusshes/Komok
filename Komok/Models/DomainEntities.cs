@@ -51,10 +51,19 @@ public sealed class StoreAdmin
     public ApplicationUser User { get; set; } = null!;
 }
 
+public sealed class ProductCategory
+{
+    public int Id { get; set; }
+    public required string Name { get; set; }
+    public required string NormalizedName { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public sealed class Product
 {
     public long Id { get; set; }
     public int StoreId { get; set; }
+    public int CategoryId { get; set; }
     public string SellerId { get; set; } = "";
     public required string Title { get; set; }
     public required string Description { get; set; }
@@ -64,6 +73,7 @@ public sealed class Product
     public ListingStatus ListingStatus { get; set; } = ListingStatus.Submitted;
     public InventoryStatus InventoryStatus { get; set; } = InventoryStatus.NotReceived;
     public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? PublishedAt { get; set; }
     public DateTimeOffset? ReservedUntil { get; set; }
     public DateTimeOffset? ArrivalAt { get; set; }
     public string? BuyerName { get; set; }
@@ -76,6 +86,7 @@ public sealed class Product
     public decimal? PayoutAmount { get; set; }
     public PayoutStatus PayoutStatus { get; set; } = PayoutStatus.NotDue;
     public Store Store { get; set; } = null!;
+    public ProductCategory Category { get; set; } = null!;
     public ApplicationUser Seller { get; set; } = null!;
 }
 

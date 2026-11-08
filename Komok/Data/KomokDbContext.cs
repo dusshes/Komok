@@ -12,6 +12,7 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
     public DbSet<StoreOpeningInterval> StoreOpeningIntervals => Set<StoreOpeningInterval>();
     public DbSet<CommissionBand> CommissionBands => Set<CommissionBand>();
     public DbSet<StoreAdmin> StoreAdministrators => Set<StoreAdmin>();
+    public DbSet<ProductCategory> Categories => Set<ProductCategory>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<EmailOutboxMessage> EmailOutbox => Set<EmailOutboxMessage>();
 
@@ -56,6 +57,15 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
                 .HasForeignKey(link => link.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<ProductCategory>(entity =>
+        {
+            entity.ToTable("Categories");
+            entity.Property(category => category.Name).HasMaxLength(120).IsRequired();
+            entity.Property(category => category.NormalizedName).HasMaxLength(120).IsRequired();
+            entity.Property(category => category.IsActive).HasDefaultValue(true);
+            entity.HasIndex(category => category.NormalizedName).IsUnique();
+        });
+
         modelBuilder.Entity<Product>(entity =>
         {
             entity.Property(product => product.Title).HasMaxLength(160).IsRequired();
@@ -69,9 +79,12 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
             entity.Property(product => product.PayoutAmount).HasPrecision(12, 2);
             entity.HasOne(product => product.Store).WithMany()
                 .HasForeignKey(product => product.StoreId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(product => product.Category).WithMany()
+                .HasForeignKey(product => product.CategoryId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(product => product.Seller).WithMany()
                 .HasForeignKey(product => product.SellerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(product => new { product.StoreId, product.ListingStatus, product.InventoryStatus });
+            entity.HasIndex(product => product.CategoryId);
             entity.HasIndex(product => product.SellerId);
         });
 

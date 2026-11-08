@@ -12,7 +12,7 @@ public sealed record RegisterRequest(
 
 public sealed record LoginRequest(string Email, string Password, bool RememberMe = true);
 public sealed record ConfirmEmailRequest(string Email, string Token);
-public sealed record CreateListingRequest(int StoreId, string Title, string Description, decimal AskingPrice);
+public sealed record CreateListingRequest(int StoreId, int CategoryId, string Title, string Description, decimal AskingPrice);
 public sealed record BookingRequest(long ProductId, DateTimeOffset ArrivalAt, string? Name, string Messenger, string MessengerContact);
 public sealed record StoreUpsertRequest(
     string Name,
@@ -29,6 +29,8 @@ public sealed record ReviewListingRequest(
     string? Title,
     string? Description,
     decimal? AskingPrice,
-    decimal? CommissionPercent);
+    decimal? CommissionPercent,
+    int? CategoryId);
+public sealed record ProductCategoryUpsertRequest(string Name, bool IsActive = true);
 public sealed record MarkSoldRequest(decimal SoldPrice);
 public sealed record AssignAdminRequest(string Email, IReadOnlyList<int> StoreIds);
