@@ -335,9 +335,14 @@ export default function App() {
 
   const storeCommission = stores.find((store) => store.id === storeId)?.commissionBands ?? []
   const listingPrice = Number(listingForm.askingPrice)
-  const applicableBand = storeCommission.filter((band) => band.priceThreshold <= listingPrice)
+  const hasValidListingPrice = storeId !== null
+    && listingForm.askingPrice.trim() !== ''
+    && Number.isFinite(listingPrice)
+    && listingPrice > 0
+  const applicableBand = hasValidListingPrice ? storeCommission.filter((band) => band.priceThreshold <= listingPrice)
     .sort((left, right) => right.priceThreshold - left.priceThreshold)[0]
-  const estimatedCommission = applicableBand && listingPrice > 0
+    : undefined
+  const estimatedCommission = applicableBand
     ? applicableBand.kind === 'Percent' ? listingPrice * applicableBand.rate / 100 : applicableBand.rate
     : null
 
@@ -418,7 +423,10 @@ export default function App() {
   }, [])
 
   const loadListings = useCallback(async () => {
-    try { setListings(await api<Listing[]>('/api/listings/mine')) }
+    try {
+      const data = await api<Listing[]>('/api/listings/mine')
+      setListings(data.map((listing) => ({ ...listing, photos: listing.photos ?? [] })))
+    }
     catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error') }
   }, [])
 
@@ -847,7 +855,7 @@ export default function App() {
       {view === 'listings' && <section className="page-section">
         <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => setView('new-listing')}>＋ Подать заявку</button></div>
         {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => setView('new-listing')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
-          {listing.photos.length > 0 && <div className="photo-strip">{listing.photos.map((photo) => <img key={photo.id} src={photo.url} alt={listing.title} />)}</div>}
+           {listing.photos?.length > 0 && <div className="photo-strip">{listing.photos.map((photo) => <img key={photo.id} src={photo.url} alt={listing.title} />)}</div>}
           <div><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3>{listing.title}</h3><p>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
             {(listing.reservedUntil || listing.arrivalAt) && <div className="reservation-details">{listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)} ({formatRelativeArrival(listing.arrivalAt, relativeClock)})</p>}</div>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
           </div>
@@ -861,7 +869,7 @@ export default function App() {
         <label>Название вещи<input name="title" required maxLength={160} value={listingForm.title} onChange={(event) => setListingForm({ ...listingForm, title: event.target.value })} /></label>
         <label>Описание<textarea name="description" required rows={4} maxLength={5000} value={listingForm.description} onChange={(event) => setListingForm({ ...listingForm, description: event.target.value })} /></label>
         <label>Желаемая цена<input name="askingPrice" required type="number" min="0.01" step="0.01" value={listingForm.askingPrice} onChange={(event) => setListingForm({ ...listingForm, askingPrice: event.target.value })} /></label>
-        {listingForm.askingPrice && (estimatedCommission === null
+         {hasValidListingPrice && (estimatedCommission === null
           ? <p className="form-error">Цена ниже минимального порога выбранного магазина. Увеличьте цену, чтобы отправить заявку.</p>
           : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice - estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}.</p>)}
         <div className="form-stack photo-upload"><span>Фотографии (до 10, JPEG, PNG или WebP, до 10 МБ каждая)</span><div className="button-row"><label className="button button-outline button-small">Выбрать файлы<input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => addListingPhotos(event.target.files)} /></label><label className="button button-outline button-small">Снять фото<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => addListingPhotos(event.target.files)} /></label></div>
