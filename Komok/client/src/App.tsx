@@ -426,7 +426,18 @@ export default function App() {
     try {
       const data = await api<Listing[]>('/api/listings/mine')
       setListings(Array.isArray(data)
-        ? data.map((listing) => ({ ...listing, photos: Array.isArray(listing.photos) ? listing.photos : [] }))
+        ? data.map((listing) => ({
+          ...listing,
+          id: Number.isFinite(listing.id) ? listing.id : 0,
+          title: typeof listing.title === 'string' ? listing.title : 'Без названия',
+          description: typeof listing.description === 'string' ? listing.description : '',
+          askingPrice: Number.isFinite(listing.askingPrice) ? listing.askingPrice : 0,
+          store: typeof listing.store === 'string' ? listing.store : '',
+          listingStatus: typeof listing.listingStatus === 'string' ? listing.listingStatus : 'Submitted',
+          inventoryStatus: typeof listing.inventoryStatus === 'string' ? listing.inventoryStatus : 'NotReceived',
+          currency: typeof listing.currency === 'string' && listing.currency.length === 3 ? listing.currency : 'RUB',
+          photos: Array.isArray(listing.photos) ? listing.photos : [],
+        }))
         : [])
     }
     catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error') }
@@ -572,7 +583,14 @@ export default function App() {
   async function createListing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
-    if (!storeId) return
+    if (storeId === null || !hasValidListingPrice) {
+      const priceControl = form.elements.namedItem('askingPrice')
+      if (priceControl instanceof HTMLInputElement) {
+        setFieldError(priceControl, 'Введите положительную цену.')
+        priceControl.focus()
+      }
+      return
+    }
     setListingBusy(true)
     try {
       const body = new FormData()
