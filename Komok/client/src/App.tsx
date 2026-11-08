@@ -121,6 +121,37 @@ function storePath(storeId: number): string {
   return `/stores/${storeId}${pathname === '/' ? '' : pathname}`
 }
 
+type AppView = 'catalog' | 'account' | 'listings' | 'new-listing' | 'admin' | 'store-admin'
+
+interface AppRoute {
+  view: AppView
+  authMode: 'login' | 'register'
+  productId: number | null
+  booking: boolean
+}
+
+function routeFromPath(pathname: string): AppRoute {
+  const suffix = pathname.match(/^\/stores\/\d+(?:\/(.*))?$/)?.[1] ?? ''
+  if (suffix === '' || suffix === 'catalog') return { view: 'catalog', authMode: 'login', productId: null, booking: false }
+  if (suffix === 'my-listings') return { view: 'listings', authMode: 'login', productId: null, booking: false }
+  if (suffix === 'management') return { view: 'admin', authMode: 'login', productId: null, booking: false }
+  if (suffix === 'store-management') return { view: 'store-admin', authMode: 'login', productId: null, booking: false }
+  if (suffix === 'account' || suffix === 'login') return { view: 'account', authMode: 'login', productId: null, booking: false }
+  if (suffix === 'register') return { view: 'account', authMode: 'register', productId: null, booking: false }
+  if (suffix === 'listings/new') return { view: 'new-listing', authMode: 'login', productId: null, booking: false }
+  const product = suffix.match(/^products\/(\d+)(?:\/(booking))?$/)
+  if (product) {
+    const productId = Number(product[1])
+    if (Number.isSafeInteger(productId) && productId > 0)
+      return { view: 'catalog', authMode: 'login', productId, booking: product[2] === 'booking' }
+  }
+  return { view: 'catalog', authMode: 'login', productId: null, booking: false }
+}
+
+function storePagePath(storeId: number, suffix = ''): string {
+  return `/stores/${storeId}${suffix ? `/${suffix}` : ''}`
+}
+
 function replaceStorePath(storeId: number) {
   window.history.replaceState({}, '', `${storePath(storeId)}${window.location.search}${window.location.hash}`)
 }
@@ -287,7 +318,7 @@ export default function App() {
   const [catalogSort, setCatalogSort] = useState<'newest' | 'alphabetical' | 'price-asc' | 'price-desc'>('newest')
   const [groupByCategory, setGroupByCategory] = useState(true)
   const [user, setUser] = useState<CurrentUser | null>(null)
-  const [view, setView] = useState<'catalog' | 'account' | 'listings' | 'new-listing' | 'admin' | 'store-admin'>('catalog')
+  const [view, setView] = useState<AppView>('catalog')
   const [notice, setNotice] = useState<Notice | null>(null)
   const noticeTimer = useRef<number | null>(null)
   const noticeId = useRef(0)
@@ -334,7 +365,7 @@ export default function App() {
 
   useEffect(() => {
     if (!detailProduct) return
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setDetailProduct(null) }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeProductDetail() }
     document.addEventListener('keydown', closeOnEscape)
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [detailProduct])
@@ -393,18 +424,20 @@ export default function App() {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current)
   }, [])
 
-  const loadCatalog = useCallback(async (id: number) => {
+  const loadCatalog = useCallback(async (id: number): Promise<Product[]> => {
     const requestId = ++catalogRequestId.current
     setLoadingCatalog(true)
     try {
       const catalog = await api<CatalogResponse>(`/api/catalog?storeId=${id}`)
-      if (requestId !== catalogRequestId.current) return
+      if (requestId !== catalogRequestId.current) return []
       setProducts(catalog.products)
       setCatalogCategories(catalog.categories)
       setSelectedCategoryIds((current) => current.filter((categoryId) => catalog.categories.some((category) => category.id === categoryId)))
+      return catalog.products
     } catch (error) {
       if (requestId === catalogRequestId.current)
         showNotice(error instanceof Error ? error.message : 'Не удалось загрузить каталог.', 'error')
+      return []
     } finally {
       if (requestId === catalogRequestId.current) setLoadingCatalog(false)
     }
@@ -508,10 +541,12 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
+      let emailConfirmationLink = false
       const params = new URLSearchParams(window.location.search)
       const confirmEmail = params.get('confirmEmail')
       const token = params.get('token')
       if (confirmEmail && token) {
+        emailConfirmationLink = true
         try {
           const result = await api<{ message: string }>('/api/auth/confirm-email', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -530,14 +565,17 @@ export default function App() {
       const currentStores = await api<Store[]>('/api/stores').catch(() => [] as Store[])
       setStores(currentStores)
       let selectedStoreId: number | null = null
+      let initialCatalog: Product[] = []
       if (currentStores.length > 0) {
         const requestedStoreId = storeIdFromPath(window.location.pathname)
         const selectedStore = currentStores.find((store) => store.id === requestedStoreId) ?? currentStores[0]
         if (selectedStore.id !== requestedStoreId) replaceStorePath(selectedStore.id)
         selectedStoreId = selectedStore.id
         setCatalogStoreId(selectedStore.id)
-        await loadCatalog(selectedStore.id)
+        initialCatalog = await loadCatalog(selectedStore.id)
       }
+      if (emailConfirmationLink && selectedStoreId !== null)
+        window.history.replaceState({}, '', storePagePath(selectedStoreId, 'login'))
       const currentUser = await loadAccount()
       if (currentUser) {
         const activeStoreId = storeIdFromPath(window.location.pathname) ?? selectedStoreId
@@ -545,6 +583,10 @@ export default function App() {
         if (currentUser.isSuperAdmin) await loadAdminCategories()
         if ((currentUser.isStoreAdmin || currentUser.isSuperAdmin) && activeStoreId !== null) await loadAdminStores(activeStoreId)
       }
+      const initialRoute = emailConfirmationLink
+        ? { view: 'account', authMode: 'login', productId: null, booking: false } satisfies AppRoute
+        : routeFromPath(window.location.pathname)
+      applyLocationRoute(initialRoute, initialCatalog, currentUser, selectedStoreId)
     })()
   // Initial load only.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -595,7 +637,8 @@ export default function App() {
         if (catalogStoreId !== null) await loadListings(catalogStoreId)
         if (current.isSuperAdmin) await loadAdminCategories()
         if ((current.isStoreAdmin || current.isSuperAdmin) && catalogStoreId !== null) await loadAdminStores(catalogStoreId)
-        setView(current.isStoreAdmin || current.isSuperAdmin ? 'admin' : 'listings')
+        if (current.isStoreAdmin || current.isSuperAdmin) navigateTo('admin', 'management')
+        else navigateTo('listings', 'my-listings')
       }
       showNotice('Вы вошли в аккаунт.', 'success')
     } catch (error) {
@@ -610,7 +653,7 @@ export default function App() {
     setUser(null)
     setListings([])
     setAdminStores([])
-    setView('catalog')
+    navigateTo('catalog')
     showNotice('Вы вышли из аккаунта.', 'success')
   }
 
@@ -639,7 +682,7 @@ export default function App() {
       setListingPhotos([])
       showNotice('Заявка отправлена администратору магазина.', 'success')
       if (catalogStoreId !== null) await loadListings(catalogStoreId)
-      setView('listings')
+      navigateTo('listings', 'my-listings')
     } catch (error) {
       showFormFailure(form, error, 'Не удалось отправить заявку.')
     } finally {
@@ -687,6 +730,7 @@ export default function App() {
       setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
       setBookingSlots([])
       setBookingAddress('')
+      if (catalogStoreId !== null) window.history.replaceState({}, '', storePagePath(catalogStoreId, `products/${bookingResult.productId}`))
       setProducts((current) => current.map((product) => product.id === bookingResult.productId
         ? { ...product, status: 'Reserved', reservedUntil: bookingResult.expiresAt }
         : product))
@@ -699,7 +743,10 @@ export default function App() {
     }
   }
 
-  async function openBooking(product: Product) {
+  async function openBooking(product: Product, updateUrl = true) {
+    setDetailProduct(product)
+    if (updateUrl && catalogStoreId !== null)
+      window.history.pushState({}, '', storePagePath(catalogStoreId, `products/${product.id}/booking`))
     setBookingProduct(product)
     setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
     setBookingSlots([])
@@ -711,10 +758,24 @@ export default function App() {
       setBookingSlots(options.slots)
     } catch (error) {
       setBookingProduct(null)
+      if (catalogStoreId !== null) window.history.replaceState({}, '', storePagePath(catalogStoreId, `products/${product.id}`))
       showNotice(error instanceof Error ? error.message : 'Не удалось загрузить время визита.', 'error')
     } finally {
       setBookingLoading(false)
     }
+  }
+
+  function closeProductDetail() {
+    setDetailProduct(null)
+    setBookingProduct(null)
+    if (catalogStoreId !== null)
+      window.history.replaceState({}, '', storePagePath(catalogStoreId))
+  }
+
+  function cancelBooking() {
+    setBookingProduct(null)
+    if (catalogStoreId !== null && detailProduct !== null)
+      window.history.replaceState({}, '', storePagePath(catalogStoreId, `products/${detailProduct.id}`))
   }
 
   async function listingAction(id: number, action: 'delivery' | 'cancel') {
@@ -812,10 +873,12 @@ export default function App() {
     }
   }
 
-  function selectGlobalStore(id: number, updateHistory = true) {
-    if (id === catalogStoreId) return
+  function selectGlobalStore(id: number, updateHistory = true): Promise<Product[]> {
+    if (id === catalogStoreId) return Promise.resolve(products)
     setCatalogStoreId(id)
-    if (updateHistory) pushStorePath(id)
+    const activeRoute = routeFromPath(window.location.pathname)
+    if (updateHistory && activeRoute.productId !== null) window.history.pushState({}, '', storePagePath(id))
+    else if (updateHistory) pushStorePath(id)
     else replaceStorePath(id)
     setSelectedCategoryIds([])
     setCatalogSearch('')
@@ -825,7 +888,7 @@ export default function App() {
     setBookingProduct(null)
     setBookingSlots([])
     setBookingAddress('')
-    void loadCatalog(id)
+    const catalogLoad = loadCatalog(id)
     if (user) void loadListings(id)
 
     if (user?.isStoreAdmin || user?.isSuperAdmin) {
@@ -839,6 +902,57 @@ export default function App() {
         adminProductsRequestId.current++
       }
     }
+    return catalogLoad
+  }
+
+  function navigateTo(nextView: AppView, suffix = '', nextAuthMode: 'login' | 'register' = 'login') {
+    setView(nextView)
+    setAuthMode(nextAuthMode)
+    setDetailProduct(null)
+    setBookingProduct(null)
+    if (catalogStoreId !== null)
+      window.history.pushState({}, '', `${storePagePath(catalogStoreId, suffix)}${window.location.search}`)
+  }
+
+  function applyLocationRoute(route: AppRoute, catalog: Product[], currentUser: CurrentUser | null, storeId = catalogStoreId) {
+    if ((route.view === 'admin' && !(currentUser?.isStoreAdmin || currentUser?.isSuperAdmin))
+      || (route.view === 'store-admin' && !currentUser?.isSuperAdmin)) {
+      showNotice('У вас недостаточно прав для этого раздела.', 'error')
+      setView('catalog')
+      if (storeId !== null) window.history.replaceState({}, '', storePagePath(storeId))
+      return
+    }
+
+    setView(route.view)
+    setAuthMode(route.authMode)
+    if (route.productId === null) {
+      setDetailProduct(null)
+      setBookingProduct(null)
+    } else if (!route.booking) {
+      setBookingProduct(null)
+    }
+    if (route.view === 'listings' && currentUser && storeId !== null) void loadListings(storeId)
+    if (route.view === 'admin' && currentUser && storeId !== null) {
+      if (currentUser.isSuperAdmin || currentUser.storeIds.includes(storeId)) void loadAdminProducts(storeId)
+      else { setAdminStoreId(null); setAdminProducts([]) }
+    }
+    if (route.view === 'store-admin' && storeId !== null) void loadAdminStores(storeId)
+
+    if (route.productId !== null) {
+      const product = catalog.find((item) => item.id === route.productId)
+      if (!product) {
+        showNotice('Этот товар не найден в выбранном магазине.', 'error')
+        setView('catalog')
+        if (storeId !== null) window.history.replaceState({}, '', storePagePath(storeId))
+        return
+      }
+      setDetailProduct(product)
+      if (route.booking && product.status === 'Available') void openBooking(product, false)
+      else if (route.booking) {
+        showNotice('Этот товар сейчас нельзя забронировать.', 'error')
+        if (storeId !== null) window.history.replaceState({}, '', storePagePath(storeId, `products/${product.id}`))
+      }
+    }
   }
 
   useEffect(() => {
@@ -849,12 +963,13 @@ export default function App() {
         : stores[0]?.id
       if (selectedStoreId !== undefined) {
         if (selectedStoreId !== pathStoreId) replaceStorePath(selectedStoreId)
-        selectGlobalStore(selectedStoreId, false)
+        const route = routeFromPath(window.location.pathname)
+        void selectGlobalStore(selectedStoreId, false).then((catalog) => applyLocationRoute(route, catalog, user, selectedStoreId))
       }
     }
     window.addEventListener('popstate', syncStoreFromHistory)
     return () => window.removeEventListener('popstate', syncStoreFromHistory)
-  }, [catalogStoreId, stores, user, adminStores])
+  }, [catalogStoreId, stores, user, products])
 
   const catalogTimeZoneId = stores.find((store) => store.id === catalogStoreId)?.timeZoneId ?? '+00:00'
   const sortedCatalogCategories = [...catalogCategories].sort((left, right) => russianCollator.compare(left.name, right.name))
@@ -887,7 +1002,11 @@ export default function App() {
   }
 
   function renderProductCard(product: Product) {
-    const openDetails = () => setDetailProduct(product)
+    const openDetails = () => {
+      setDetailProduct(product)
+      setBookingProduct(null)
+      if (catalogStoreId !== null) window.history.pushState({}, '', storePagePath(catalogStoreId, `products/${product.id}`))
+    }
     const activePhotoIndex = catalogPhotoIndexes[product.id] ?? 0
     const activePhoto = product.photos[activePhotoIndex]
     const changePhotoBySwipe = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -913,7 +1032,7 @@ export default function App() {
           <strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
           {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="button button-small booking-state" title={`Забронировано до ${formatDate(product.reservedUntil, catalogTimeZoneId)}`}>Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
         </div>
-        {bookingProduct?.id === product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+        {bookingProduct?.id === product.id && detailProduct?.id !== product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
           <h4>Когда вы приедете?</h4>
           {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
           {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
@@ -921,7 +1040,7 @@ export default function App() {
           <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
           <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
           <label>Имя<input name="name" required maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
-          <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
+          <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={cancelBooking}>Отмена</button></div>
         </form>}
       </div>
     </article>
@@ -961,35 +1080,35 @@ export default function App() {
     </form>
   }
 
-  const catalogHref = catalogStoreId === null ? '#catalog' : `${storePath(catalogStoreId)}#catalog`
+  const catalogHref = catalogStoreId === null ? '#catalog' : storePagePath(catalogStoreId)
 
   return (
     <main className="site-shell">
       <header className="topbar">
-        <a className="brand" href={catalogHref} onClick={() => setView('catalog')}><span className="brand-mark">К</span><span>Комок<small>комиссионные магазины</small></span></a>
+        <a className="brand" href={catalogHref} onClick={(event) => { event.preventDefault(); navigateTo('catalog') }}><span className="brand-mark">К</span><span>Комок<small>комиссионные магазины</small></span></a>
         <label className="global-store-filter">Магазин<select value={catalogStoreId ?? ''} disabled={stores.length === 0} onChange={(event) => selectGlobalStore(Number(event.target.value))}>
           {stores.length === 0 ? <option value="">Магазинов пока нет</option> : stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
         </select></label>
         <nav className="navigation" aria-label="Основная навигация">
-          <button className={view === 'catalog' ? 'nav-link active' : 'nav-link'} onClick={() => setView('catalog')}>Каталог</button>
-          {user && <button className={view === 'listings' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('listings'); if (catalogStoreId !== null) void loadListings(catalogStoreId) }}>Мои товары</button>}
-          {(user?.isStoreAdmin || user?.isSuperAdmin) && <button className={view === 'admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('admin'); if (catalogStoreId !== null && (user.isSuperAdmin || user.storeIds.includes(catalogStoreId))) void loadAdminProducts(catalogStoreId); else { setAdminStoreId(null); setAdminProducts([]) } }}>Управление</button>}
-          {user?.isSuperAdmin && <button className={view === 'store-admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('store-admin'); if (catalogStoreId !== null) void loadAdminStores(catalogStoreId) }}>Управление магазинами</button>}
-          <button className={view === 'account' ? 'nav-link active' : 'nav-link'} onClick={() => setView('account')}>{user ? user.name || user.email : 'Войти'}</button>
+          <button className={view === 'catalog' ? 'nav-link active' : 'nav-link'} onClick={() => navigateTo('catalog')}>Каталог</button>
+          {user && <button className={view === 'listings' ? 'nav-link active' : 'nav-link'} onClick={() => { navigateTo('listings', 'my-listings'); if (catalogStoreId !== null) void loadListings(catalogStoreId) }}>Мои товары</button>}
+          {(user?.isStoreAdmin || user?.isSuperAdmin) && <button className={view === 'admin' ? 'nav-link active' : 'nav-link'} onClick={() => { navigateTo('admin', 'management'); if (catalogStoreId !== null && (user.isSuperAdmin || user.storeIds.includes(catalogStoreId))) void loadAdminProducts(catalogStoreId); else { setAdminStoreId(null); setAdminProducts([]) } }}>Управление</button>}
+          {user?.isSuperAdmin && <button className={view === 'store-admin' ? 'nav-link active' : 'nav-link'} onClick={() => { navigateTo('store-admin', 'store-management'); if (catalogStoreId !== null) void loadAdminStores(catalogStoreId) }}>Управление магазинами</button>}
+          <button className={view === 'account' ? 'nav-link active' : 'nav-link'} onClick={() => navigateTo('account', user ? 'account' : 'login')}>{user ? user.name || user.email : 'Войти'}</button>
         </nav>
       </header>
 
       {notice && <div className={`notice notice-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.message}</span><button aria-label="Закрыть уведомление" onClick={clearNotice}>×</button></div>}
 
-      {detailProduct && <div className="modal-backdrop" role="presentation" onClick={() => setDetailProduct(null)}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
-        <button className="modal-close" type="button" aria-label="Закрыть" onClick={() => setDetailProduct(null)}>×</button>
+      {detailProduct && <div className="modal-backdrop" role="presentation" onClick={closeProductDetail}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" type="button" aria-label="Закрыть" onClick={closeProductDetail}>×</button>
         {renderDetailGallery(detailProduct)}
         <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title">{detailProduct.title}</h2>
         <p className="modal-description">{detailProduct.description}</p>
         <div className="modal-bottom"><strong>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</strong>
           {detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано до {formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
         </div>
-        {bookingProduct?.id === detailProduct.id && renderBookingForm()}
+          {bookingProduct?.id === detailProduct.id && renderBookingForm()}
       </section></div>}
 
       {view === 'catalog' && <section className="page-section">
@@ -1021,7 +1140,7 @@ export default function App() {
         <p className="eyebrow">Личный кабинет</p>
         <h1>{user ? 'Ваш аккаунт' : authMode === 'login' ? 'С возвращением' : 'Стать продавцом'}</h1>
         {user ? <div className="panel">{user.name && <p className="signed-name">{user.name}</p>}<p className="signed-email">{user.email}</p><p>{user.isSuperAdmin ? 'Главный администратор' : user.isStoreAdmin ? 'Администратор магазина' : 'Продавец'}</p><p className="muted">{user.messenger}: {user.messengerContact}</p><button className="button button-outline" onClick={() => void logout()}>Выйти</button></div> : <>
-          <div className="segmented"><button className={authMode === 'login' ? 'selected' : ''} onClick={() => setAuthMode('login')}>Войти</button><button className={authMode === 'register' ? 'selected' : ''} onClick={() => setAuthMode('register')}>Регистрация продавца</button></div>
+          <div className="segmented"><button className={authMode === 'login' ? 'selected' : ''} onClick={() => navigateTo('account', 'login', 'login')}>Войти</button><button className={authMode === 'register' ? 'selected' : ''} onClick={() => navigateTo('account', 'register', 'register')}>Регистрация продавца</button></div>
           <form className="panel form-stack" onSubmit={submitAuth} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
             <label>Email<input name="email" type="email" autoComplete="email" required maxLength={256} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
             <label>Пароль<input name="password" type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} required minLength={10} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -1039,8 +1158,8 @@ export default function App() {
       </section>}
 
       {view === 'listings' && <section className="page-section">
-        <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => setView('new-listing')}>＋ Подать заявку</button></div>
-        {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => setView('new-listing')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
+        <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => navigateTo('new-listing', 'listings/new')}>＋ Подать заявку</button></div>
+        {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => navigateTo('new-listing', 'listings/new')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
            {listing.photos?.length > 0 && <div className="photo-strip">{listing.photos.map((photo) => <img key={photo.id} src={photo.url} alt={listing.title} />)}</div>}
           <div><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3>{listing.title}</h3><p>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
             {(listing.reservedUntil || listing.arrivalAt) && <div className="reservation-details">{listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)} ({formatRelativeArrival(listing.arrivalAt, relativeClock)})</p>}</div>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
@@ -1063,7 +1182,7 @@ export default function App() {
           {listingPhotos.length >= 10 && <p className="muted">Достигнут лимит в 10 фотографий.</p>}
         </div>
         <p className="muted">Администратор проверит заявку и сообщит адрес передачи вещи.</p>
-        <div className="button-row"><button className="button" disabled={listingBusy || !user || (listingForm.askingPrice !== '' && estimatedCommission === null)}>{listingBusy ? 'Отправляем…' : 'Отправить заявку'}</button><button className="button-quiet" type="button" onClick={() => setView('listings')}>Назад</button></div>
+        <div className="button-row"><button className="button" disabled={listingBusy || !user || (listingForm.askingPrice !== '' && estimatedCommission === null)}>{listingBusy ? 'Отправляем…' : 'Отправить заявку'}</button><button className="button-quiet" type="button" onClick={() => navigateTo('listings', 'my-listings')}>Назад</button></div>
       </form></section>}
 
       {view === 'admin' && <section className="page-section"><p className="eyebrow">Рабочее место</p><h1>Управление</h1>
