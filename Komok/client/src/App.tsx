@@ -9,7 +9,7 @@ type Store = {
   openingIntervals: { dayOfWeek: number; opensAt: string; closesAt: string }[]
   commissionBands: CommissionBand[]
 }
-type Photo = { id: number; url: string }
+type Photo = { id: number; url: string; thumbnailUrl?: string; mediumUrl?: string; originalUrl?: string }
 type Product = {
   id: number
   categoryId: number
@@ -290,6 +290,7 @@ export default function App() {
   const [bookingAddress, setBookingAddress] = useState('')
   const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>([])
   const [bookingLoading, setBookingLoading] = useState(false)
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null)
   const [adminStores, setAdminStores] = useState<ManagedStore[]>([])
   const [adminStoreId, setAdminStoreId] = useState<number | null>(null)
   const [adminProducts, setAdminProducts] = useState<AdminProduct[]>([])
@@ -303,6 +304,13 @@ export default function App() {
   const listingPhotoPreviews = useMemo(() => listingPhotos.map((photo) => URL.createObjectURL(photo)), [listingPhotos])
 
   useEffect(() => () => listingPhotoPreviews.forEach((url) => URL.revokeObjectURL(url)), [listingPhotoPreviews])
+
+  useEffect(() => {
+    if (!detailProduct) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setDetailProduct(null) }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [detailProduct])
 
   const storeCommission = stores.find((store) => store.id === storeId)?.commissionBands
   const listingPrice = listingForm.askingPrice.trim() === '' ? null : Number(listingForm.askingPrice)
@@ -614,7 +622,7 @@ export default function App() {
         body: JSON.stringify({
           productId: bookingProduct.id,
           arrivalAt: booking.arrivalAt,
-          name: booking.name || null,
+           name: booking.name.trim(),
           messenger: booking.messenger,
           messengerContact: booking.messengerContact,
         }),
@@ -624,6 +632,7 @@ export default function App() {
       setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
       setBookingSlots([])
       setBookingAddress('')
+      setDetailProduct(null)
       if (storeId) await loadCatalog(storeId)
     } catch (error) {
       showFormFailure(form, error, 'Не удалось забронировать товар.')
@@ -758,12 +767,14 @@ export default function App() {
   })).filter((group) => group.products.length > 0)
 
   function renderProductCard(product: Product) {
-    return <article className="product-card" key={product.id}>
-      <div className="product-visual">{product.photos.length > 0 ? <div className="catalog-photo-strip">{product.photos.map((photo) => <img key={photo.id} src={photo.url} alt={product.title} />)}</div> : <span className="product-symbol">✳</span>}<span className="product-category">{product.category}</span></div>
-      <div className="product-info"><h3>{product.title}</h3><p>{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
-        {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
+    const openDetails = () => setDetailProduct(product)
+    return <article className="product-card" key={product.id} onClick={openDetails} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openDetails() }} role="button" tabIndex={0}>
+      <div className="product-visual">{product.photos.length > 0 ? <div className="catalog-photo-strip">{product.photos.map((photo, index) => <img id={`catalog-photo-${product.id}-${index}`} key={photo.id} src={photo.thumbnailUrl ?? photo.url} alt={product.title} loading="lazy" />)}</div> : <span className="product-symbol">✳</span>}<span className="product-category">{product.category}</span></div>
+      <div className="product-info"><h3>{product.title}</h3><p className="product-description">{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
+        {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
       </div>
-      {bookingProduct?.id === product.id && <form className="booking-form" onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+      {product.photos.length > 1 && <div className="catalog-photo-dots" onClick={(event) => event.stopPropagation()}>{product.photos.map((photo, index) => <button key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={(event) => { event.stopPropagation(); document.getElementById(`catalog-photo-${product.id}-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }) }} />)}</div>}
+      {bookingProduct?.id === product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
         <h4>Когда вы приедете?</h4>
         {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
         {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
@@ -775,6 +786,19 @@ export default function App() {
       </form>}
       </div>
     </article>
+  }
+
+  function renderBookingForm() {
+    return <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+      <h4>Когда вы приедете?</h4>
+      {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
+      {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
+      {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
+      <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
+      <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
+      <label>Имя<input name="name" required maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
+      <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
+    </form>
   }
 
   return (
@@ -791,6 +815,15 @@ export default function App() {
       </header>
 
       {notice && <div className={`notice notice-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.message}</span><button aria-label="Закрыть уведомление" onClick={clearNotice}>×</button></div>}
+
+      {detailProduct && <div className="modal-backdrop" role="presentation" onClick={() => setDetailProduct(null)}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" type="button" aria-label="Закрыть" onClick={() => setDetailProduct(null)}>×</button>
+        <div className="modal-gallery">{detailProduct.photos.length > 0 ? detailProduct.photos.map((photo) => <img key={photo.id} src={photo.originalUrl ?? photo.url} alt={detailProduct.title} />) : <span className="product-symbol">✳</span>}</div>
+        <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title">{detailProduct.title}</h2>
+        <dl className="product-specifications"><div><dt>Магазин</dt><dd>{stores.find((store) => store.id === storeId)?.name}</dd></div><div><dt>Цена</dt><dd>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</dd></div><div><dt>Статус</dt><dd>{detailProduct.status === 'Available' ? 'Доступен' : detailProduct.status === 'Reserved' ? `Забронирован до ${formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}` : 'Продан'}</dd></div></dl>
+        <p className="modal-description">{detailProduct.description}</p>
+        {detailProduct.status === 'Available' && (bookingProduct?.id === detailProduct.id ? renderBookingForm() : <button className="button" onClick={() => void openBooking(detailProduct)}>Забронировать</button>)}
+      </section></div>}
 
       {view === 'catalog' && <section className="page-section">
         <div className="hero">

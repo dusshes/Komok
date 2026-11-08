@@ -3,6 +3,12 @@ using Komok.Data;
 using Komok.Models;
 using Komok.Services;
 using Microsoft.EntityFrameworkCore;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.Processing;
 using System.Globalization;
 
 namespace Komok.Endpoints;
@@ -90,7 +96,13 @@ public static class CatalogApi
                 Status = product.InventoryStatus.ToString(),
                 product.ReservedUntil,
                 Photos = product.Photos.OrderBy(photo => photo.SortOrder)
-                    .Select(photo => new { photo.Id, Url = $"/api/products/{product.Id}/photos/{photo.Id}" })
+                    .Select(photo => new
+                    {
+                        photo.Id,
+                        ThumbnailUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=thumbnail",
+                        MediumUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=medium",
+                        OriginalUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=original"
+                    })
             })
             .ToListAsync(cancellationToken);
 
@@ -100,6 +112,7 @@ public static class CatalogApi
     private static async Task<IResult> GetCatalogPhotoAsync(
         long productId,
         long photoId,
+        string? size,
         KomokDbContext db,
         CancellationToken cancellationToken)
     {
@@ -108,8 +121,51 @@ public static class CatalogApi
                 && item.Product.ListingStatus == ListingStatus.OnSale)
             .Select(item => new { item.ContentType, item.Data })
             .SingleOrDefaultAsync(cancellationToken);
-        return photo is null ? Results.NotFound() : Results.File(photo.Data, photo.ContentType);
+        if (photo is null) return Results.NotFound();
+        if (!TryGetPhotoSize(size, out var width, out var height)) return Results.BadRequest(new { message = "Неизвестный размер фотографии." });
+        if (width is null) return Results.File(photo.Data, photo.ContentType);
+
+        using var image = Image.Load(photo.Data);
+        image.Mutate(context => context.Resize(new ResizeOptions
+        {
+            Size = new Size(width.Value, height!.Value),
+            Mode = ResizeMode.Max
+        }));
+        await using var output = new MemoryStream();
+        image.Save(output, GetEncoder(photo.ContentType));
+        return Results.File(output.ToArray(), photo.ContentType);
     }
+
+    private static bool TryGetPhotoSize(string? size, out int? width, out int? height)
+    {
+        switch (size?.ToLowerInvariant())
+        {
+            case null:
+            case "original":
+                width = null;
+                height = null;
+                return true;
+            case "thumbnail":
+                width = 480;
+                height = 360;
+                return true;
+            case "medium":
+                width = 960;
+                height = 720;
+                return true;
+            default:
+                width = null;
+                height = null;
+                return false;
+        }
+    }
+
+    private static IImageEncoder GetEncoder(string contentType) => contentType switch
+    {
+        "image/png" => new PngEncoder(),
+        "image/webp" => new WebpEncoder(),
+        _ => new JpegEncoder()
+    };
 
     private static async Task<IResult> GetBookingOptionsAsync(
         long productId,
