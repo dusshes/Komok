@@ -18,7 +18,8 @@ public static class AdminApi
         admin.MapGet("/stores", GetStoresAsync);
         admin.MapPost("/stores", CreateStoreAsync)
             .RequireAuthorization(policy => policy.RequireRole(Roles.SuperAdmin));
-        admin.MapPut("/stores/{storeId:int}", UpdateStoreAsync);
+        admin.MapPut("/stores/{storeId:int}", UpdateStoreAsync)
+            .RequireAuthorization(policy => policy.RequireRole(Roles.SuperAdmin));
         admin.MapPost("/users/assign-admin", AssignAdminAsync)
             .RequireAuthorization(policy => policy.RequireRole(Roles.SuperAdmin));
         admin.MapGet("/users", GetUsersAsync)
@@ -55,6 +56,19 @@ public static class AdminApi
             CommissionBands = store.CommissionBands.OrderBy(band => band.PriceThreshold)
                 .Select(band => new { band.Id, band.PriceThreshold, band.Kind, band.Rate })
         }).ToListAsync(cancellationToken);
+        if (!principal.IsInRole(Roles.SuperAdmin))
+            return Results.Ok(stores.Select(store => new
+            {
+                store.Id,
+                store.Name,
+                Address = "",
+                store.CurrencyCode,
+                TimeZoneId = "+00:00",
+                BookingDurationHours = 0,
+                IsActive = true,
+                OpeningIntervals = Array.Empty<object>(),
+                CommissionBands = Array.Empty<object>()
+            }));
         return Results.Ok(stores.Select(store => new
         {
             store.Id,

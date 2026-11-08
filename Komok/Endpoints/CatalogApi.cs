@@ -14,6 +14,7 @@ public static class CatalogApi
         var api = endpoints.MapGroup("/api");
         api.MapGet("/stores", GetStoresAsync).WithName("GetStores");
         api.MapGet("/catalog", GetCatalogAsync).WithName("GetCatalog");
+        api.MapGet("/products/{productId:long}/photos/{photoId:long}", GetCatalogPhotoAsync).WithName("GetCatalogPhoto");
         api.MapGet("/products/{productId:long}/booking-options", GetBookingOptionsAsync).WithName("GetBookingOptions");
         api.MapPost("/bookings", CreateBookingAsync).WithName("CreateBooking");
         return endpoints;
@@ -30,7 +31,10 @@ public static class CatalogApi
                 store.Name,
                 store.CurrencyCode,
                 store.TimeZoneId,
-                OpeningIntervals = store.OpeningIntervals
+                CommissionBands = store.CommissionBands.OrderBy(band => band.PriceThreshold)
+                    .Select(band => new { band.PriceThreshold, band.Kind, band.Rate })
+                    .ToList(),
+                Intervals = store.OpeningIntervals
                     .Select(interval => new { DayOfWeek = (int)interval.DayOfWeek, interval.OpensAt, interval.ClosesAt })
             })
             .ToListAsync(cancellationToken);
@@ -40,7 +44,8 @@ public static class CatalogApi
             store.Name,
             store.CurrencyCode,
             TimeZoneId = StoreHours.NormalizeUtcOffset(store.TimeZoneId),
-            store.OpeningIntervals
+            OpeningIntervals = store.Intervals,
+            store.CommissionBands
         }));
     }
 
@@ -83,11 +88,27 @@ public static class CatalogApi
                 product.PublishedAt,
                 product.Store.CurrencyCode,
                 Status = product.InventoryStatus.ToString(),
-                product.ReservedUntil
+                product.ReservedUntil,
+                Photos = product.Photos.OrderBy(photo => photo.SortOrder)
+                    .Select(photo => new { photo.Id, Url = $"/api/products/{product.Id}/photos/{photo.Id}" })
             })
             .ToListAsync(cancellationToken);
 
         return Results.Ok(new { categories, products });
+    }
+
+    private static async Task<IResult> GetCatalogPhotoAsync(
+        long productId,
+        long photoId,
+        KomokDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var photo = await db.ProductPhotos.AsNoTracking()
+            .Where(item => item.Id == photoId && item.ProductId == productId
+                && item.Product.ListingStatus == ListingStatus.OnSale)
+            .Select(item => new { item.ContentType, item.Data })
+            .SingleOrDefaultAsync(cancellationToken);
+        return photo is null ? Results.NotFound() : Results.File(photo.Data, photo.ContentType);
     }
 
     private static async Task<IResult> GetBookingOptionsAsync(

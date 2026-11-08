@@ -14,6 +14,7 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
     public DbSet<StoreAdmin> StoreAdministrators => Set<StoreAdmin>();
     public DbSet<ProductCategory> Categories => Set<ProductCategory>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductPhoto> ProductPhotos => Set<ProductPhoto>();
     public DbSet<EmailOutboxMessage> EmailOutbox => Set<EmailOutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -91,6 +92,15 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
             entity.HasIndex(product => new { product.StoreId, product.ListingStatus, product.InventoryStatus });
             entity.HasIndex(product => product.CategoryId);
             entity.HasIndex(product => product.SellerId);
+        });
+
+        modelBuilder.Entity<ProductPhoto>(entity =>
+        {
+            entity.Property(photo => photo.ContentType).HasMaxLength(32).IsRequired();
+            entity.Property(photo => photo.Data).IsRequired();
+            entity.HasOne(photo => photo.Product).WithMany(product => product.Photos)
+                .HasForeignKey(photo => photo.ProductId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(photo => new { photo.ProductId, photo.SortOrder }).IsUnique();
         });
 
         modelBuilder.Entity<EmailOutboxMessage>(entity =>

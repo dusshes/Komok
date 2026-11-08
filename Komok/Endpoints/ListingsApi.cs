@@ -4,7 +4,9 @@ using Komok.Models;
 using Komok.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Globalization;
 
 namespace Komok.Endpoints;
 
@@ -13,8 +15,10 @@ public static class ListingsApi
     public static IEndpointRouteBuilder MapListingsApi(this IEndpointRouteBuilder endpoints)
     {
         var seller = endpoints.MapGroup("/api/listings").RequireAuthorization().WithTags("Listings");
-        seller.MapPost("/", CreateAsync);
+        seller.MapPost("/", CreateAsync)
+            .WithMetadata(new RequestSizeLimitAttribute(105 * 1024 * 1024));
         seller.MapGet("/mine", MineAsync);
+        seller.MapGet("/{id:long}/photos/{photoId:long}", GetSellerPhotoAsync);
         seller.MapPost("/{id:long}/delivery", MarkDeliveryAsync);
         seller.MapPost("/{id:long}/cancel", CancelAsync);
 
@@ -28,31 +32,51 @@ public static class ListingsApi
     }
 
     private static async Task<IResult> CreateAsync(
-        CreateListingRequest request,
+        HttpRequest httpRequest,
         ClaimsPrincipal principal,
         UserManager<ApplicationUser> users,
         KomokDbContext db,
         CancellationToken cancellationToken)
     {
+        if (!httpRequest.HasFormContentType)
+            return Results.BadRequest(new { message = "Заявка должна быть отправлена как форма с файлами." });
+        var form = await httpRequest.ReadFormAsync(cancellationToken);
+        if (!int.TryParse(form["storeId"], out var storeId)
+            || !int.TryParse(form["categoryId"], out var categoryId)
+            || !decimal.TryParse(form["askingPrice"], NumberStyles.Number, CultureInfo.InvariantCulture, out var askingPrice))
+            return ValidationErrors.BadRequest(("askingPrice", "Проверьте магазин, категорию и цену."));
+        var title = form["title"].ToString();
+        var description = form["description"].ToString();
+        var photos = form.Files;
         var inputErrors = new List<(string Field, string Message)>();
-        if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 160)
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 160)
             inputErrors.Add(("title", "Укажите название длиной не более 160 символов."));
-        if (string.IsNullOrWhiteSpace(request.Description) || request.Description.Length > 5000)
+        if (string.IsNullOrWhiteSpace(description) || description.Length > 5000)
             inputErrors.Add(("description", "Укажите описание длиной не более 5000 символов."));
-        if (request.AskingPrice <= 0)
+        if (askingPrice <= 0)
             inputErrors.Add(("askingPrice", "Введите цену больше нуля."));
+        if (photos.Count > 10)
+            inputErrors.Add(("photos", "Можно прикрепить не более 10 фотографий."));
+        for (var index = 0; index < photos.Count; index++)
+        {
+            var photo = photos[index];
+            if (photo.Length is 0 or > 10 * 1024 * 1024)
+                inputErrors.Add(("photos", "Размер каждой фотографии должен быть не более 10 МБ."));
+            else if (!await IsSupportedImageAsync(photo, cancellationToken))
+                inputErrors.Add(("photos", "Поддерживаются только фотографии JPEG, PNG и WebP."));
+        }
         if (inputErrors.Count > 0)
             return ValidationErrors.BadRequest(inputErrors.ToArray());
 
         var seller = await users.GetUserAsync(principal);
         if (seller is null) return Results.Unauthorized();
         var store = await db.Stores.Include(item => item.CommissionBands)
-            .SingleOrDefaultAsync(item => item.Id == request.StoreId && item.IsActive, cancellationToken);
+            .SingleOrDefaultAsync(item => item.Id == storeId && item.IsActive, cancellationToken);
         if (store is null) return ValidationErrors.BadRequest(("storeId", "Выберите действующий магазин."));
         var category = await db.Categories.AsNoTracking()
-            .SingleOrDefaultAsync(item => item.Id == request.CategoryId && item.IsActive, cancellationToken);
+            .SingleOrDefaultAsync(item => item.Id == categoryId && item.IsActive, cancellationToken);
         if (category is null) return ValidationErrors.BadRequest(("categoryId", "Выберите активную категорию товара."));
-        var band = store.CommissionBands.Where(item => item.PriceThreshold <= request.AskingPrice)
+        var band = store.CommissionBands.Where(item => item.PriceThreshold <= askingPrice)
             .OrderByDescending(item => item.PriceThreshold).FirstOrDefault();
         if (band is null)
             return ValidationErrors.BadRequest(("askingPrice", "Цена товара ниже минимального порога выбранного магазина."));
@@ -62,14 +86,15 @@ public static class ListingsApi
             StoreId = store.Id,
             CategoryId = category.Id,
             SellerId = seller.Id,
-            Title = request.Title.Trim(),
-            Description = request.Description.Trim(),
-            AskingPrice = request.AskingPrice,
+            Title = title.Trim(),
+            Description = description.Trim(),
+            AskingPrice = askingPrice,
             CommissionKind = band.Kind,
             CommissionRate = band.Rate,
             ListingStatus = ListingStatus.Submitted,
             InventoryStatus = InventoryStatus.NotReceived,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            Photos = await ReadPhotosAsync(photos, cancellationToken)
         };
         db.Products.Add(product);
         await db.SaveChangesAsync(cancellationToken);
@@ -104,9 +129,68 @@ public static class ListingsApi
                 product.SoldPrice,
                 product.PayoutAmount,
                 product.PayoutStatus,
-                Currency = product.Store.CurrencyCode
+                Currency = product.Store.CurrencyCode,
+                Photos = product.Photos.OrderBy(photo => photo.SortOrder)
+                    .Select(photo => new { photo.Id, Url = $"/api/listings/{product.Id}/photos/{photo.Id}" })
             }).ToListAsync(cancellationToken);
         return Results.Ok(listings);
+    }
+
+    private static async Task<IResult> GetSellerPhotoAsync(
+        long id,
+        long photoId,
+        ClaimsPrincipal principal,
+        UserManager<ApplicationUser> users,
+        KomokDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.GetUserAsync(principal);
+        if (user is null) return Results.Unauthorized();
+        var photo = await db.ProductPhotos.AsNoTracking()
+            .Where(item => item.Id == photoId && item.ProductId == id)
+            .Select(item => new { item.ContentType, item.Data, item.Product.SellerId, item.Product.StoreId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (photo is null) return Results.NotFound();
+        if (!string.Equals(photo.SellerId, user.Id, StringComparison.Ordinal)
+            && !await AdminApi.CanManageStoreAsync(principal, user.Id, photo.StoreId, db, cancellationToken))
+            return Results.Forbid();
+        return Results.File(photo.Data, photo.ContentType);
+    }
+
+    private static async Task<List<ProductPhoto>> ReadPhotosAsync(IFormFileCollection files, CancellationToken cancellationToken)
+    {
+        var photos = new List<ProductPhoto>(files.Count);
+        for (var index = 0; index < files.Count; index++)
+        {
+            await using var stream = new MemoryStream();
+            await files[index].CopyToAsync(stream, cancellationToken);
+            photos.Add(new ProductPhoto
+            {
+                SortOrder = index,
+                ContentType = GetImageContentType(stream.GetBuffer().AsSpan(0, (int)stream.Length)),
+                Data = stream.ToArray()
+            });
+        }
+        return photos;
+    }
+
+    private static async Task<bool> IsSupportedImageAsync(IFormFile file, CancellationToken cancellationToken)
+    {
+        var header = new byte[12];
+        await using var stream = file.OpenReadStream();
+        var read = await stream.ReadAsync(header, cancellationToken);
+        return GetImageContentType(header.AsSpan(0, read)) != "application/octet-stream";
+    }
+
+    private static string GetImageContentType(ReadOnlySpan<byte> header)
+    {
+        if (header.Length >= 3 && header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff)
+            return "image/jpeg";
+        if (header.Length >= 8 && header[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }))
+            return "image/png";
+        if (header.Length >= 12 && header[..4].SequenceEqual("RIFF"u8) && header[8..12].SequenceEqual("WEBP"u8))
+            return "image/webp";
+        return "application/octet-stream";
     }
 
     private static async Task<IResult> MarkDeliveryAsync(
@@ -188,7 +272,9 @@ public static class ListingsApi
                 item.SoldPrice,
                 item.PayoutAmount,
                 item.PayoutStatus,
-                item.Store.CurrencyCode
+                item.Store.CurrencyCode,
+                Photos = item.Photos.OrderBy(photo => photo.SortOrder)
+                    .Select(photo => new { photo.Id, Url = $"/api/listings/{item.Id}/photos/{photo.Id}" })
             }).ToListAsync(cancellationToken);
         return Results.Ok(products);
     }

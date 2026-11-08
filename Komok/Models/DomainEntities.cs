@@ -86,9 +86,20 @@ public sealed class Product
     public decimal? CommissionAmount { get; set; }
     public decimal? PayoutAmount { get; set; }
     public PayoutStatus PayoutStatus { get; set; } = PayoutStatus.NotDue;
+    public List<ProductPhoto> Photos { get; set; } = [];
     public Store Store { get; set; } = null!;
     public ProductCategory Category { get; set; } = null!;
     public ApplicationUser Seller { get; set; } = null!;
+}
+
+public sealed class ProductPhoto
+{
+    public long Id { get; set; }
+    public long ProductId { get; set; }
+    public int SortOrder { get; set; }
+    public required string ContentType { get; set; }
+    public required byte[] Data { get; set; }
+    public Product Product { get; set; } = null!;
 }
 
 public sealed class EmailOutboxMessage

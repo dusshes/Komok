@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 type Store = {
@@ -7,7 +7,9 @@ type Store = {
   currencyCode: string
   timeZoneId: string
   openingIntervals: { dayOfWeek: number; opensAt: string; closesAt: string }[]
+  commissionBands: CommissionBand[]
 }
+type Photo = { id: number; url: string }
 type Product = {
   id: number
   categoryId: number
@@ -19,6 +21,7 @@ type Product = {
   currencyCode: string
   status: string
   reservedUntil: string | null
+  photos: Photo[]
 }
 type CatalogCategory = { id: number; name: string }
 type Category = CatalogCategory & { isActive: boolean }
@@ -41,6 +44,7 @@ type Listing = {
   payoutAmount: number | null
   payoutStatus: string
   currency: string
+  photos: Photo[]
 }
 type AdminProduct = {
   id: number
@@ -68,6 +72,7 @@ type AdminProduct = {
   payoutAmount: number | null
   payoutStatus: string
   currencyCode: string
+  photos: Photo[]
 }
 type OpeningInterval = { dayOfWeek: number; opensAt: string; closesAt: string }
 type CommissionBand = { priceThreshold: number; kind: 'Percent' | 'Fixed'; rate: number }
@@ -288,9 +293,9 @@ export default function App() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([])
   const [catalogSearch, setCatalogSearch] = useState('')
   const [catalogSort, setCatalogSort] = useState<'newest' | 'alphabetical' | 'price-asc' | 'price-desc'>('newest')
-  const [groupByCategory, setGroupByCategory] = useState(false)
+  const [groupByCategory, setGroupByCategory] = useState(true)
   const [user, setUser] = useState<CurrentUser | null>(null)
-  const [view, setView] = useState<'catalog' | 'account' | 'listings' | 'new-listing' | 'admin'>('catalog')
+  const [view, setView] = useState<'catalog' | 'account' | 'listings' | 'new-listing' | 'admin' | 'store-admin'>('catalog')
   const [notice, setNotice] = useState<Notice | null>(null)
   const noticeTimer = useRef<number | null>(null)
   const noticeId = useRef(0)
@@ -307,6 +312,7 @@ export default function App() {
   const [listings, setListings] = useState<Listing[]>([])
   const [relativeClock, setRelativeClock] = useState(() => Date.now())
   const [listingForm, setListingForm] = useState({ title: '', description: '', askingPrice: '', categoryId: '' })
+  const [listingPhotos, setListingPhotos] = useState<File[]>([])
   const [listingBusy, setListingBusy] = useState(false)
   const [bookingProduct, setBookingProduct] = useState<Product | null>(null)
   const [booking, setBooking] = useState({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
@@ -323,6 +329,34 @@ export default function App() {
   const [storeBusy, setStoreBusy] = useState(false)
   const [adminEmail, setAdminEmail] = useState('')
   const [adminStoreIds, setAdminStoreIds] = useState<number[]>([])
+  const listingPhotoPreviews = useMemo(() => listingPhotos.map((photo) => URL.createObjectURL(photo)), [listingPhotos])
+
+  useEffect(() => () => listingPhotoPreviews.forEach((url) => URL.revokeObjectURL(url)), [listingPhotoPreviews])
+
+  const storeCommission = stores.find((store) => store.id === storeId)?.commissionBands ?? []
+  const listingPrice = Number(listingForm.askingPrice)
+  const applicableBand = storeCommission.filter((band) => band.priceThreshold <= listingPrice)
+    .sort((left, right) => right.priceThreshold - left.priceThreshold)[0]
+  const estimatedCommission = applicableBand && listingPrice > 0
+    ? applicableBand.kind === 'Percent' ? listingPrice * applicableBand.rate / 100 : applicableBand.rate
+    : null
+
+  function addListingPhotos(files: FileList | null) {
+    if (!files) return
+    const selected = Array.from(files)
+    const invalid = selected.filter((photo) => !['image/jpeg', 'image/png', 'image/webp'].includes(photo.type) || photo.size > 10 * 1024 * 1024)
+    if (invalid.length > 0) {
+      showNotice('Выберите JPEG, PNG или WebP размером не более 10 МБ каждый.', 'error')
+      return
+    }
+    setListingPhotos((current) => {
+      if (current.length + selected.length > 10) {
+        showNotice('Можно прикрепить не более 10 фотографий.', 'error')
+        return current
+      }
+      return [...current, ...selected]
+    })
+  }
 
   const clearNotice = useCallback(() => {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current)
@@ -531,11 +565,16 @@ export default function App() {
     if (!storeId) return
     setListingBusy(true)
     try {
-      await api('/api/listings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...listingForm, storeId, categoryId: Number(listingForm.categoryId), askingPrice: Number(listingForm.askingPrice) }),
-      })
+      const body = new FormData()
+      body.set('storeId', String(storeId))
+      body.set('categoryId', listingForm.categoryId)
+      body.set('title', listingForm.title)
+      body.set('description', listingForm.description)
+      body.set('askingPrice', listingForm.askingPrice)
+      listingPhotos.forEach((photo) => body.append('photos', photo))
+      await api('/api/listings', { method: 'POST', body })
       setListingForm({ title: '', description: '', askingPrice: '', categoryId: '' })
+      setListingPhotos([])
       showNotice('Заявка отправлена администратору магазина.', 'success')
       await loadListings()
       setView('listings')
@@ -721,7 +760,7 @@ export default function App() {
 
   function renderProductCard(product: Product) {
     return <article className="product-card" key={product.id}>
-      <div className="product-visual"><span className="product-category">{product.category}</span><span className="product-symbol">✳</span></div>
+      <div className="product-visual">{product.photos.length > 0 ? <div className="catalog-photo-strip">{product.photos.map((photo) => <img key={photo.id} src={photo.url} alt={product.title} />)}</div> : <span className="product-symbol">✳</span>}<span className="product-category">{product.category}</span></div>
       <div className="product-info"><h3>{product.title}</h3><p>{product.description}</p><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
         {product.status === 'Available' ? <button className="button button-small" onClick={() => void openBooking(product)}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
       </div>
@@ -747,7 +786,8 @@ export default function App() {
           <button className={view === 'catalog' ? 'nav-link active' : 'nav-link'} onClick={() => setView('catalog')}>Каталог</button>
           {user && <button className={view === 'listings' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('listings'); void loadListings() }}>Мои товары</button>}
           {(user?.isStoreAdmin || user?.isSuperAdmin) && <button className={view === 'admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('admin'); void loadAdminStores() }}>Управление</button>}
-          <button className={view === 'account' ? 'nav-link active' : 'nav-link'} onClick={() => setView('account')}>{user ? user.email : 'Войти'}</button>
+          {user?.isSuperAdmin && <button className={view === 'store-admin' ? 'nav-link active' : 'nav-link'} onClick={() => { setView('store-admin'); void loadAdminStores() }}>Управление магазинами</button>}
+          <button className={view === 'account' ? 'nav-link active' : 'nav-link'} onClick={() => setView('account')}>{user ? user.name || user.email : 'Войти'}</button>
         </nav>
       </header>
 
@@ -807,6 +847,7 @@ export default function App() {
       {view === 'listings' && <section className="page-section">
         <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => setView('new-listing')}>＋ Подать заявку</button></div>
         {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => setView('new-listing')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
+          {listing.photos.length > 0 && <div className="photo-strip">{listing.photos.map((photo) => <img key={photo.id} src={photo.url} alt={listing.title} />)}</div>}
           <div><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3>{listing.title}</h3><p>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
             {(listing.reservedUntil || listing.arrivalAt) && <div className="reservation-details">{listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)} ({formatRelativeArrival(listing.arrivalAt, relativeClock)})</p>}</div>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
           </div>
@@ -820,11 +861,25 @@ export default function App() {
         <label>Название вещи<input name="title" required maxLength={160} value={listingForm.title} onChange={(event) => setListingForm({ ...listingForm, title: event.target.value })} /></label>
         <label>Описание<textarea name="description" required rows={4} maxLength={5000} value={listingForm.description} onChange={(event) => setListingForm({ ...listingForm, description: event.target.value })} /></label>
         <label>Желаемая цена<input name="askingPrice" required type="number" min="0.01" step="0.01" value={listingForm.askingPrice} onChange={(event) => setListingForm({ ...listingForm, askingPrice: event.target.value })} /></label>
-        <p className="muted">Минимальная цена зависит от выбранного магазина. Администратор проверит заявку и сообщит адрес передачи вещи.</p>
-        <div className="button-row"><button className="button" disabled={listingBusy || !user}>{listingBusy ? 'Отправляем…' : 'Отправить заявку'}</button><button className="button-quiet" type="button" onClick={() => setView('listings')}>Назад</button></div>
+        {listingForm.askingPrice && (estimatedCommission === null
+          ? <p className="form-error">Цена ниже минимального порога выбранного магазина. Увеличьте цену, чтобы отправить заявку.</p>
+          : <p className="muted">Ориентировочная комиссия: {formatMoney(estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}. На руки: {formatMoney(listingPrice - estimatedCommission, stores.find((store) => store.id === storeId)?.currencyCode ?? 'RUB')}.</p>)}
+        <div className="form-stack photo-upload"><span>Фотографии (до 10, JPEG, PNG или WebP, до 10 МБ каждая)</span><div className="button-row"><label className="button button-outline button-small">Выбрать файлы<input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => addListingPhotos(event.target.files)} /></label><label className="button button-outline button-small">Снять фото<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => addListingPhotos(event.target.files)} /></label></div>
+          {listingPhotos.length > 0 && <div className="photo-strip">{listingPhotos.map((photo, index) => <div className="photo-preview" key={`${photo.name}-${index}`}><img src={listingPhotoPreviews[index]} alt={photo.name} /><button type="button" className="button-danger" onClick={() => setListingPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Убрать</button></div>)}</div>}
+          {listingPhotos.length >= 10 && <p className="muted">Достигнут лимит в 10 фотографий.</p>}
+        </div>
+        <p className="muted">Администратор проверит заявку и сообщит адрес передачи вещи.</p>
+        <div className="button-row"><button className="button" disabled={listingBusy || !user || (listingForm.askingPrice !== '' && estimatedCommission === null)}>{listingBusy ? 'Отправляем…' : 'Отправить заявку'}</button><button className="button-quiet" type="button" onClick={() => setView('listings')}>Назад</button></div>
       </form></section>}
 
-      {view === 'admin' && <section className="page-section"><p className="eyebrow">Рабочее место</p><h1>Управление магазинами</h1>
+      {view === 'admin' && <section className="page-section"><p className="eyebrow">Рабочее место</p><h1>Управление</h1>
+        {adminStores.length > 0 ? <>
+          <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><label className="store-filter">Магазин<select value={adminStoreId ?? ''} onChange={(event) => { const id = Number(event.target.value); selectManagedStore(id); void loadAdminProducts(id) }}>{adminStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label></div>
+          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (storeId) await loadCatalog(storeId); await loadListings() }} onNotice={showNotice} />)}</div>}
+        </> : <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
+      </section>}
+
+      {view === 'store-admin' && user?.isSuperAdmin && <section className="page-section"><p className="eyebrow">Рабочее место</p><h1>Управление магазинами</h1>
         {user?.isSuperAdmin && <div className="admin-layout">
           <section className="panel"><div className="section-heading compact"><h2>{adminStoreId ? 'Настройки магазина' : 'Новый магазин'}</h2><button className="button-quiet" type="button" onClick={() => { setAdminStoreId(null); setStoreForm(makeStoreForm()) }}>＋ Новый</button></div>
             <form className="form-stack" onSubmit={saveStore} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
@@ -867,10 +922,6 @@ export default function App() {
             if (storeId) await loadCatalog(storeId)
           }} onNotice={showNotice} />)}</div>
         </section>}
-        {adminStores.length > 0 ? <>
-          <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><label className="store-filter">Магазин<select value={adminStoreId ?? ''} onChange={(event) => { const id = Number(event.target.value); selectManagedStore(id); void loadAdminProducts(id) }}>{adminStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label></div>
-          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (storeId) await loadCatalog(storeId); await loadListings() }} onNotice={showNotice} />)}</div>}
-        </> : !user?.isSuperAdmin && <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
       </section>}
 
       <footer className="footer"><span>Комок</span><span>Вещи продолжают жить</span><span className="photo-credit">Фон: <a href="https://commons.wikimedia.org/wiki/File:Cau_Thuan_Phuoc_ve_dem.JPG" target="_blank" rel="noreferrer">Thick thi sock, Wikimedia Commons</a>, <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a> (кадрировано и затемнено)</span></footer>
@@ -973,6 +1024,7 @@ function AdminProductCard({ product, activeCategories, onChanged, onNotice }: {
   }
 
   return <article className="admin-product panel">
+    {product.photos.length > 0 && <div className="photo-strip">{product.photos.map((photo) => <img key={photo.id} src={photo.url} alt={product.title} />)}</div>}
     <div className="admin-product-title"><div><span className="badge">{listingLabels[product.listingStatus] ?? product.listingStatus} · {product.inventoryStatus}</span><h3>{product.title}</h3><p className="muted">Продавец: {product.sellerName ? `${product.sellerName} · ` : ''}{product.sellerEmail} · {product.sellerMessenger}: {product.sellerMessengerContact}</p></div><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong></div>
     {product.inventoryStatus === 'Reserved' && <div className="reservation-details"><p className="muted">Бронь до {formatDate(product.reservedUntil ?? null, product.timeZoneId)}</p><p className="muted">Прибытие на осмотр {formatDate(product.arrivalAt, product.timeZoneId)}</p>{(product.buyerName || (product.buyerMessenger && product.buyerMessengerContact)) && <p className="muted">{product.buyerName}{product.buyerName && product.buyerMessenger && product.buyerMessengerContact ? ' · ' : ''}{product.buyerMessenger && product.buyerMessengerContact ? `${product.buyerMessenger}: ${product.buyerMessengerContact}` : ''}</p>}</div>}
     {['Submitted', 'NeedsRevision'].includes(product.listingStatus) && <form className="form-stack review-fields" onSubmit={approveListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
