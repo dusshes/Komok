@@ -292,6 +292,7 @@ export default function App() {
   const [bookingLoading, setBookingLoading] = useState(false)
   const [detailProduct, setDetailProduct] = useState<Product | null>(null)
   const [catalogPhotoIndexes, setCatalogPhotoIndexes] = useState<Record<number, number>>({})
+  const [detailPhotoIndexes, setDetailPhotoIndexes] = useState<Record<number, number>>({})
   const [adminStores, setAdminStores] = useState<ManagedStore[]>([])
   const [adminStoreId, setAdminStoreId] = useState<number | null>(null)
   const [adminProducts, setAdminProducts] = useState<AdminProduct[]>([])
@@ -633,10 +634,12 @@ export default function App() {
       setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
       setBookingSlots([])
       setBookingAddress('')
-      setDetailProduct(null)
       setProducts((current) => current.map((product) => product.id === bookingResult.productId
         ? { ...product, status: 'Reserved', reservedUntil: bookingResult.expiresAt }
         : product))
+      setDetailProduct((current) => current && current.id === bookingResult.productId
+        ? { ...current, status: 'Reserved', reservedUntil: bookingResult.expiresAt }
+        : current)
       if (storeId) await loadCatalog(storeId)
     } catch (error) {
       showFormFailure(form, error, 'Не удалось забронировать товар.')
@@ -774,6 +777,10 @@ export default function App() {
     setCatalogPhotoIndexes((current) => ({ ...current, [productId]: index }))
   }
 
+  function setDetailPhotoIndex(productId: number, index: number) {
+    setDetailPhotoIndexes((current) => ({ ...current, [productId]: index }))
+  }
+
   function renderProductCard(product: Product) {
     const openDetails = () => setDetailProduct(product)
     const activePhotoIndex = catalogPhotoIndexes[product.id] ?? 0
@@ -811,6 +818,27 @@ export default function App() {
     </article>
   }
 
+  function renderDetailGallery(product: Product) {
+    const activePhotoIndex = detailPhotoIndexes[product.id] ?? 0
+    const activePhoto = product.photos[activePhotoIndex]
+    const changePhotoBySwipe = (event: React.PointerEvent<HTMLDivElement>) => {
+      const startX = event.clientX
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        const delta = upEvent.clientX - startX
+        if (Math.abs(delta) > 40) {
+          const nextIndex = Math.max(0, Math.min(product.photos.length - 1, activePhotoIndex + (delta < 0 ? 1 : -1)))
+          setDetailPhotoIndex(product.id, nextIndex)
+        }
+        window.removeEventListener('pointerup', handlePointerUp)
+      }
+      window.addEventListener('pointerup', handlePointerUp, { once: true })
+    }
+    return <div className="modal-gallery" onPointerDown={changePhotoBySwipe}>
+      {activePhoto ? <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} /> : <span className="product-symbol">✳</span>}
+      {product.photos.length > 1 && <div className="modal-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setDetailPhotoIndex(product.id, index)} />)}</div>}
+    </div>
+  }
+
   function renderBookingForm() {
     return <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
       <h4>Когда вы приедете?</h4>
@@ -841,11 +869,13 @@ export default function App() {
 
       {detailProduct && <div className="modal-backdrop" role="presentation" onClick={() => setDetailProduct(null)}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close" type="button" aria-label="Закрыть" onClick={() => setDetailProduct(null)}>×</button>
-        <div className="modal-gallery">{detailProduct.photos.length > 0 ? detailProduct.photos.map((photo) => <img key={photo.id} src={photo.originalUrl ?? photo.url} alt={detailProduct.title} />) : <span className="product-symbol">✳</span>}</div>
+        {renderDetailGallery(detailProduct)}
         <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title">{detailProduct.title}</h2>
-        <dl className="product-specifications"><div><dt>Магазин</dt><dd>{stores.find((store) => store.id === storeId)?.name}</dd></div><div><dt>Цена</dt><dd>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</dd></div><div><dt>Статус</dt><dd>{detailProduct.status === 'Available' ? 'Доступен' : detailProduct.status === 'Reserved' ? `Забронирован до ${formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}` : 'Продан'}</dd></div></dl>
         <p className="modal-description">{detailProduct.description}</p>
-        {detailProduct.status === 'Available' && (bookingProduct?.id === detailProduct.id ? renderBookingForm() : <button className="button" onClick={() => void openBooking(detailProduct)}>Забронировать</button>)}
+        <div className="modal-bottom"><strong>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</strong>
+          {detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано</span> : null}
+        </div>
+        {bookingProduct?.id === detailProduct.id && renderBookingForm()}
       </section></div>}
 
       {view === 'catalog' && <section className="page-section">
