@@ -14,7 +14,7 @@
 
 * { box-sizing: border-box; }
 body { position: relative; min-width: 320px; min-height: 100vh; margin: 0; }
-body::before { content: ''; position: fixed; inset: 0; z-index: -1; background-color: #08111a; background-image: linear-gradient(115deg, rgb(8 15 23 / 60%), rgb(13 23 31 / 48%) 48%, rgb(5 12 19 / 68%)), url('./assets/thuan-phuoc-night.jpg'); background-position: center, center; background-size: auto, contain; background-repeat: no-repeat; }
+body::before { content: ''; position: fixed; inset: 0; z-index: -1; background-color: #08111a; background-image: linear-gradient(115deg, rgb(8 15 23 / 60%), rgb(13 23 31 / 48%) 48%, rgb(5 12 19 / 68%)), url('./assets/thuan-phuoc-night.jpg'); background-position: center, center; background-size: auto, cover; background-repeat: no-repeat; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
@@ -97,6 +97,20 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
 .modal-photo-dots { position: absolute; right: 0; bottom: 12px; left: 0; display: flex; justify-content: center; gap: 6px; }
 .modal-photo-dots button { width: 8px; height: 8px; padding: 0; border: 1px solid white; border-radius: 50%; background: rgb(255 255 255 / 60%); box-shadow: 0 1px 3px #0005; }.modal-photo-dots button.active { background: white; transform: scale(1.2); }
 .modal-photo-dots button:hover { background: white; }
+.photo-viewer-backdrop { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / 94%); color: white; }
+.photo-viewer, .photo-viewer-stage { width: 100%; height: 100%; }
+.photo-viewer { position: relative; }
+.photo-viewer-stage { position: relative; display: flex; align-items: center; justify-content: center; touch-action: pan-y; user-select: none; }
+.photo-viewer-stage img { display: block; width: auto; height: auto; max-width: calc(100vw - 112px); max-height: calc(100vh - 96px); object-fit: contain; user-select: none; }
+.photo-viewer-close, .photo-viewer-arrow { position: absolute; z-index: 1; display: grid; place-items: center; padding: 0; border: 1px solid rgb(255 255 255 / 50%); border-radius: 50%; background: rgb(20 25 30 / 66%); color: white; }
+.photo-viewer-close { top: 16px; right: 16px; width: 46px; height: 46px; font-size: 32px; line-height: 1; }
+.photo-viewer-arrow { top: 50%; width: 48px; height: 48px; font-size: 38px; line-height: 1; transform: translateY(-50%); }
+.photo-viewer-arrow:disabled { cursor: default; opacity: .35; }
+.photo-viewer-previous { left: 16px; }
+.photo-viewer-next { right: 16px; }
+.photo-viewer-dots { position: absolute; right: 60px; bottom: 22px; left: 60px; z-index: 1; display: flex; justify-content: center; gap: 8px; }
+.photo-viewer-dots button { width: 10px; height: 10px; padding: 0; border: 1px solid white; border-radius: 50%; background: rgb(255 255 255 / 55%); }
+.photo-viewer-dots button.active { background: white; transform: scale(1.2); }
 .modal-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }.modal-bottom strong { font-size: 18px; }
 .product-modal h2 { margin: 6px 0 18px; font-size: 32px; font-weight: 500; }.modal-description { white-space: pre-line; line-height: 1.65; }.product-specifications { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 20px; }.product-specifications div { padding: 12px; border-radius: 6px; background: #f0f2eb; }.product-specifications dt { color: var(--muted); font-size: 11px; }.product-specifications dd { margin: 4px 0 0; font-weight: 600; }
 .admin-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); align-items: start; gap: 18px; margin: 26px 0 48px; }.admin-layout h2 { margin: 0; font-size: 24px; font-weight: 500; }.admin-layout h3 { margin: 0; font-size: 18px; font-weight: 500; }.subheading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }.interval-row { display: grid; grid-template-columns: 1.4fr 1fr 1fr 32px; align-items: end; gap: 7px; }.interval-row select, .interval-row input { min-width: 0; padding: 8px; font-size: 12px; }.commission-row { grid-template-columns: 1fr 1.5fr 1fr 32px; }.commission-row label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }.icon-button { border: 0; background: transparent; color: #8a6a5e; font-size: 20px; }.check-row { display: flex !important; align-items: center; gap: 9px !important; }.check-row input { width: 17px; min-height: 17px; }.admin-products-heading { margin-top: 30px; }.admin-product { display: grid; gap: 18px; }.admin-product-title { display: flex; justify-content: space-between; gap: 12px; }.admin-product-title h3 { margin: 9px 0 5px; font-size: 21px; font-weight: 500; }.admin-product-title p { margin: 0; }.review-fields { grid-template-columns: 1fr; }.sale-row { align-items: end; }.sale-row label { min-width: 160px; }.two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -154,4 +168,9 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
   .catalog-search { grid-column: auto; }
   .category-create-row, .category-admin-row { grid-template-columns: 1fr; }
   .category-status, .category-admin-row .button-row { grid-column: auto; grid-row: auto; }
+  .photo-viewer-stage img { max-width: calc(100vw - 88px); max-height: calc(100vh - 80px); }
+  .photo-viewer-arrow { width: 40px; height: 40px; font-size: 32px; }
+  .photo-viewer-previous { left: 8px; }
+  .photo-viewer-next { right: 8px; }
+  .photo-viewer-close { top: 10px; right: 10px; width: 40px; height: 40px; }
 }

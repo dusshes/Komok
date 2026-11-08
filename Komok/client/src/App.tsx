@@ -347,8 +347,12 @@ export default function App() {
   const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>([])
   const [bookingLoading, setBookingLoading] = useState(false)
   const [detailProduct, setDetailProduct] = useState<Product | null>(null)
+  const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false)
   const [catalogPhotoIndexes, setCatalogPhotoIndexes] = useState<Record<number, number>>({})
   const [detailPhotoIndexes, setDetailPhotoIndexes] = useState<Record<number, number>>({})
+  const ignoreNextCatalogClick = useRef(false)
+  const ignoreNextDetailPhotoClick = useRef(false)
+  const ignoreNextPhotoViewerBackdropClick = useRef(false)
   const [adminStores, setAdminStores] = useState<ManagedStore[]>([])
   const [adminStoreId, setAdminStoreId] = useState<number | null>(null)
   const [adminProducts, setAdminProducts] = useState<AdminProduct[]>([])
@@ -365,10 +369,31 @@ export default function App() {
 
   useEffect(() => {
     if (!detailProduct) return
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeProductDetail() }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [detailProduct])
+    const handleDetailKeys = (event: KeyboardEvent) => {
+      if (isPhotoViewerOpen) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          setIsPhotoViewerOpen(false)
+        } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault()
+          const currentIndex = detailPhotoIndexes[detailProduct.id] ?? 0
+          const delta = event.key === 'ArrowLeft' ? -1 : 1
+          setDetailPhotoIndex(detailProduct.id, Math.max(0, Math.min(detailProduct.photos.length - 1, currentIndex + delta)))
+        }
+        return
+      }
+      if (event.key === 'Escape') closeProductDetail()
+    }
+    document.addEventListener('keydown', handleDetailKeys)
+    return () => document.removeEventListener('keydown', handleDetailKeys)
+  }, [detailProduct, detailPhotoIndexes, isPhotoViewerOpen])
+
+  useEffect(() => {
+    if (!isPhotoViewerOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [isPhotoViewerOpen])
 
   const storeCommission = stores.find((store) => store.id === catalogStoreId)?.commissionBands
   const listingPrice = listingForm.askingPrice.trim() === '' ? null : Number(listingForm.askingPrice)
@@ -745,6 +770,7 @@ export default function App() {
 
   async function openBooking(product: Product, updateUrl = true) {
     setDetailProduct(product)
+    setIsPhotoViewerOpen(false)
     if (updateUrl && catalogStoreId !== null)
       window.history.pushState({}, '', storePagePath(catalogStoreId, `products/${product.id}/booking`))
     setBookingProduct(product)
@@ -767,6 +793,7 @@ export default function App() {
 
   function closeProductDetail() {
     setDetailProduct(null)
+    setIsPhotoViewerOpen(false)
     setBookingProduct(null)
     if (catalogStoreId !== null)
       window.history.replaceState({}, '', storePagePath(catalogStoreId))
@@ -885,6 +912,7 @@ export default function App() {
     setCatalogSort('newest')
     setCatalogPhotoIndexes({})
     setDetailProduct(null)
+    setIsPhotoViewerOpen(false)
     setBookingProduct(null)
     setBookingSlots([])
     setBookingAddress('')
@@ -909,12 +937,14 @@ export default function App() {
     setView(nextView)
     setAuthMode(nextAuthMode)
     setDetailProduct(null)
+    setIsPhotoViewerOpen(false)
     setBookingProduct(null)
     if (catalogStoreId !== null)
       window.history.pushState({}, '', `${storePagePath(catalogStoreId, suffix)}${window.location.search}`)
   }
 
   function applyLocationRoute(route: AppRoute, catalog: Product[], currentUser: CurrentUser | null, storeId = catalogStoreId) {
+    setIsPhotoViewerOpen(false)
     if ((route.view === 'admin' && !(currentUser?.isStoreAdmin || currentUser?.isSuperAdmin))
       || (route.view === 'store-admin' && !currentUser?.isSuperAdmin)) {
       showNotice('У вас недостаточно прав для этого раздела.', 'error')
@@ -947,6 +977,7 @@ export default function App() {
         return
       }
       setDetailProduct(product)
+      setIsPhotoViewerOpen(false)
       if (route.booking && product.status === 'Available') void openBooking(product, false)
       else if (route.booking) {
         showNotice('Этот товар сейчас нельзя забронировать.', 'error')
@@ -1004,6 +1035,7 @@ export default function App() {
   function renderProductCard(product: Product) {
     const openDetails = () => {
       setDetailProduct(product)
+      setIsPhotoViewerOpen(false)
       setBookingProduct(null)
       if (catalogStoreId !== null) window.history.pushState({}, '', storePagePath(catalogStoreId, `products/${product.id}`))
     }
@@ -1014,6 +1046,8 @@ export default function App() {
       const handlePointerUp = (upEvent: PointerEvent) => {
         const delta = upEvent.clientX - startX
         if (Math.abs(delta) > 40) {
+          ignoreNextCatalogClick.current = true
+          window.setTimeout(() => { ignoreNextCatalogClick.current = false }, 0)
           const nextIndex = Math.max(0, Math.min(product.photos.length - 1, activePhotoIndex + (delta < 0 ? 1 : -1)))
           setCatalogPhotoIndex(product.id, nextIndex)
         }
@@ -1021,10 +1055,17 @@ export default function App() {
       }
       window.addEventListener('pointerup', handlePointerUp, { once: true })
     }
-    return <article className="product-card" key={product.id} onClick={openDetails} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openDetails() }} role="button" tabIndex={0}>
-      <div className="product-visual" onClick={(event) => event.stopPropagation()} onPointerDown={changePhotoBySwipe}>
+    const handleCardClick = () => {
+      if (ignoreNextCatalogClick.current) return
+      openDetails()
+    }
+    return <article className="product-card" key={product.id} onClick={handleCardClick} onKeyDown={(event) => {
+      if (event.target !== event.currentTarget) return
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDetails() }
+    }} role="button" tabIndex={0}>
+      <div className="product-visual" onPointerDown={changePhotoBySwipe}>
         {activePhoto ? <img src={activePhoto.thumbnailUrl ?? activePhoto.mediumUrl ?? activePhoto.url} alt={product.title} loading="lazy" style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <span className="product-symbol">✳</span>}
-        {product.photos.length > 1 && <div className="catalog-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setCatalogPhotoIndex(product.id, index)} />)}</div>}
+        {product.photos.length > 1 && <div className="catalog-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={(event) => { event.stopPropagation(); setCatalogPhotoIndex(product.id, index) }} />)}</div>}
       </div>
       <div className="product-info">
         <h3>{product.title}</h3>
@@ -1054,6 +1095,8 @@ export default function App() {
       const handlePointerUp = (upEvent: PointerEvent) => {
         const delta = upEvent.clientX - startX
         if (Math.abs(delta) > 40) {
+          ignoreNextDetailPhotoClick.current = true
+          window.setTimeout(() => { ignoreNextDetailPhotoClick.current = false }, 0)
           const nextIndex = Math.max(0, Math.min(product.photos.length - 1, activePhotoIndex + (delta < 0 ? 1 : -1)))
           setDetailPhotoIndex(product.id, nextIndex)
         }
@@ -1062,8 +1105,46 @@ export default function App() {
       window.addEventListener('pointerup', handlePointerUp, { once: true })
     }
     return <div className="modal-gallery" onPointerDown={changePhotoBySwipe}>
-      {activePhoto ? <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <span className="product-symbol">✳</span>}
+      {activePhoto ? <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} onClick={() => {
+        if (ignoreNextDetailPhotoClick.current) { ignoreNextDetailPhotoClick.current = false; return }
+        setIsPhotoViewerOpen(true)
+      }} style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', cursor: 'zoom-in' }} /> : <span className="product-symbol">✳</span>}
       {product.photos.length > 1 && <div className="modal-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setDetailPhotoIndex(product.id, index)} />)}</div>}
+    </div>
+  }
+
+  function renderPhotoViewer(product: Product) {
+    const activePhotoIndex = detailPhotoIndexes[product.id] ?? 0
+    const activePhoto = product.photos[activePhotoIndex]
+    const changePhotoBySwipe = (event: React.PointerEvent<HTMLDivElement>) => {
+      const startX = event.clientX
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        const delta = upEvent.clientX - startX
+        if (Math.abs(delta) > 40) {
+          ignoreNextPhotoViewerBackdropClick.current = true
+          window.setTimeout(() => { ignoreNextPhotoViewerBackdropClick.current = false }, 0)
+          const nextIndex = Math.max(0, Math.min(product.photos.length - 1, activePhotoIndex + (delta < 0 ? 1 : -1)))
+          setDetailPhotoIndex(product.id, nextIndex)
+        }
+        window.removeEventListener('pointerup', handlePointerUp)
+      }
+      window.addEventListener('pointerup', handlePointerUp, { once: true })
+    }
+    return <div className="photo-viewer-backdrop" role="presentation" onClick={() => {
+      if (ignoreNextPhotoViewerBackdropClick.current) { ignoreNextPhotoViewerBackdropClick.current = false; return }
+      setIsPhotoViewerOpen(false)
+    }}>
+      <section className="photo-viewer" role="dialog" aria-modal="true" aria-label="Полноэкранный просмотр фотографий товара">
+        <button className="photo-viewer-close" type="button" aria-label="Закрыть просмотр фотографий" onClick={() => setIsPhotoViewerOpen(false)}>×</button>
+        <div className="photo-viewer-stage" onPointerDown={changePhotoBySwipe}>
+          {activePhoto && <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} draggable={false} onClick={(event) => event.stopPropagation()} />}
+          {product.photos.length > 1 && <>
+            <button className="photo-viewer-arrow photo-viewer-previous" type="button" aria-label="Предыдущая фотография" disabled={activePhotoIndex === 0} onClick={(event) => { event.stopPropagation(); setDetailPhotoIndex(product.id, activePhotoIndex - 1) }}>‹</button>
+            <button className="photo-viewer-arrow photo-viewer-next" type="button" aria-label="Следующая фотография" disabled={activePhotoIndex === product.photos.length - 1} onClick={(event) => { event.stopPropagation(); setDetailPhotoIndex(product.id, activePhotoIndex + 1) }}>›</button>
+            <div className="photo-viewer-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} aria-current={index === activePhotoIndex} onClick={(event) => { event.stopPropagation(); setDetailPhotoIndex(product.id, index) }} />)}</div>
+          </>}
+        </div>
+      </section>
     </div>
   }
 
@@ -1110,6 +1191,8 @@ export default function App() {
         </div>
           {bookingProduct?.id === detailProduct.id && renderBookingForm()}
       </section></div>}
+
+      {detailProduct && isPhotoViewerOpen && renderPhotoViewer(detailProduct)}
 
       {view === 'catalog' && <section className="page-section">
         <div className="hero">
