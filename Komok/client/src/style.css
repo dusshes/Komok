@@ -66,7 +66,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .catalog-photo-dots button { width: 8px; height: 8px; padding: 0; border: 1px solid white; border-radius: 50%; background: rgb(255 255 255 / 60%); box-shadow: 0 1px 3px #0005; }.catalog-photo-dots button.active { background: white; transform: scale(1.2); }
 .catalog-photo-dots button:hover { background: white; }
 .photo-strip { display: flex; gap: 10px; overflow-x: auto; padding: 8px 0; }
-.photo-strip img { width: 112px; height: 84px; flex: 0 0 auto; border-radius: 6px; object-fit: cover; }
+.photo-strip img { width: 112px; height: 84px; flex: 0 0 auto; border-radius: 6px; background: #eee8da; object-fit: contain; }
 .photo-preview { display: grid; gap: 6px; justify-items: start; }
 .photo-upload { gap: 10px; }
 .product-card:nth-child(3n+2) .product-visual { background: #e5e8df; }.product-card:nth-child(3n) .product-visual { background: #efe2d7; }
