@@ -770,7 +770,7 @@ export default function App() {
         {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
         <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
         <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
-        <label>Имя (необязательно)<input name="name" maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
+      <label>Имя<input name="name" required maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
         <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
       </form>}
       </div>

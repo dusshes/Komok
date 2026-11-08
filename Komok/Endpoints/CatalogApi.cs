@@ -175,8 +175,8 @@ public static class CatalogApi
         var arrivalAtUtc = request.ArrivalAt.ToUniversalTime();
         if (arrivalAtUtc <= DateTimeOffset.UtcNow)
             inputErrors.Add(("arrivalAt", "Выберите доступное время визита."));
-        if (request.Name?.Length > 160)
-            inputErrors.Add(("name", "Имя должно содержать не более 160 символов."));
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 160)
+            inputErrors.Add(("name", "Укажите имя длиной не более 160 символов."));
         if (!new[] { "Telegram", "WhatsApp", "MAX", "Zalo" }.Contains(request.Messenger, StringComparer.Ordinal))
             inputErrors.Add(("messenger", "Выберите мессенджер из списка."));
         if (string.IsNullOrWhiteSpace(request.MessengerContact) || request.MessengerContact.Length > 200)
@@ -222,7 +222,7 @@ public static class CatalogApi
                 .SetProperty(item => item.InventoryStatus, InventoryStatus.Reserved)
                 .SetProperty(item => item.ReservedUntil, expiresAt)
                 .SetProperty(item => item.ArrivalAt, arrivalAtUtc)
-                .SetProperty(item => item.BuyerName, request.Name)
+                .SetProperty(item => item.BuyerName, request.Name.Trim())
                 .SetProperty(item => item.BuyerMessenger, request.Messenger)
                 .SetProperty(item => item.BuyerMessengerContact, request.MessengerContact.Trim()), cancellationToken);
 
