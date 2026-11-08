@@ -798,22 +798,26 @@ export default function App() {
       window.addEventListener('pointerup', handlePointerUp, { once: true })
     }
     return <article className="product-card" key={product.id} onClick={openDetails} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openDetails() }} role="button" tabIndex={0}>
-      <div className="product-visual" onClick={(event) => event.stopPropagation()} onPointerDown={changePhotoBySwipe}>{activePhoto ? <img src={activePhoto.mediumUrl ?? activePhoto.thumbnailUrl ?? activePhoto.url} alt={product.title} loading="lazy" /> : <span className="product-symbol">✳</span>}
+      <div className="product-visual" onClick={(event) => event.stopPropagation()} onPointerDown={changePhotoBySwipe}>
+        {activePhoto ? <img src={activePhoto.thumbnailUrl ?? activePhoto.mediumUrl ?? activePhoto.url} alt={product.title} loading="lazy" /> : <span className="product-symbol">✳</span>}
         {product.photos.length > 1 && <div className="catalog-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setCatalogPhotoIndex(product.id, index)} />)}</div>}
       </div>
-      <div className="product-info"><h3>{product.title}</h3><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
-        {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="button button-small booking-state" title={`Забронировано до ${formatDate(product.reservedUntil, catalogTimeZoneId)}`}>Забронировано</span> : null}
-      </div>
-      {bookingProduct?.id === product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
-        <h4>Когда вы приедете?</h4>
-        {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
-        {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
-        {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
-        <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
-        <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
-      <label>Имя<input name="name" required maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
-        <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
-      </form>}
+      <div className="product-info">
+        <h3>{product.title}</h3>
+        <div className="product-bottom">
+          <strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
+          {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="button button-small booking-state" title={`Забронировано до ${formatDate(product.reservedUntil, catalogTimeZoneId)}`}>Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
+        </div>
+        {bookingProduct?.id === product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
+          <h4>Когда вы приедете?</h4>
+          {bookingLoading ? <p className="muted">Загружаем доступное время…</p> : <label>Дата и время визита<select name="arrivalAt" required value={booking.arrivalAt} onChange={(event) => setBooking({ ...booking, arrivalAt: event.target.value })}><option value="">Выберите доступное время</option>{bookingSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>}
+          {!bookingLoading && bookingSlots.length === 0 && <p className="muted">Нет доступного времени для визита в срок брони.</p>}
+          {bookingAddress && <p className="muted">Я приеду на осмотр по адресу: {bookingAddress}</p>}
+          <label>Мессенджер<select name="messenger" required value={booking.messenger} onChange={(event) => setBooking({ ...booking, messenger: event.target.value })}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
+          <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={booking.messengerContact} onChange={(event) => setBooking({ ...booking, messengerContact: event.target.value })} /></label>
+          <label>Имя<input name="name" required maxLength={160} value={booking.name} onChange={(event) => setBooking({ ...booking, name: event.target.value })} /></label>
+          <div className="button-row"><button className="button button-small" type="submit">Подтвердить бронь</button><button className="button-quiet" type="button" onClick={() => setBookingProduct(null)}>Отмена</button></div>
+        </form>}
       </div>
     </article>
   }
@@ -873,7 +877,7 @@ export default function App() {
         <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title">{detailProduct.title}</h2>
         <p className="modal-description">{detailProduct.description}</p>
         <div className="modal-bottom"><strong>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</strong>
-          {detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано</span> : null}
+          {detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано до {formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
         </div>
         {bookingProduct?.id === detailProduct.id && renderBookingForm()}
       </section></div>}
