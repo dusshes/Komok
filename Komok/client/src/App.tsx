@@ -191,36 +191,13 @@ function fieldLabel(control: FormControl): string {
 }
 
 function setFieldError(control: FormControl, message: string) {
-  const name = control.name || control.id || fieldLabel(control)
-  const container = control.closest('label') ?? control.parentElement
-  if (!container) return
-  let error = container.querySelector<HTMLElement>(`.field-error[data-field="${CSS.escape(name)}"]`)
-  if (!error) {
-    error = document.createElement('span')
-    error.className = 'field-error'
-    error.id = `field-error-${Math.random().toString(36).slice(2)}`
-    control.insertAdjacentElement('afterend', error)
-  }
-  error.dataset.field = name
-  error.textContent = message
+  control.setCustomValidity(message)
   control.setAttribute('aria-invalid', 'true')
-  const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
-  if (!describedBy.includes(error.id)) describedBy.push(error.id)
-  control.setAttribute('aria-describedby', describedBy.join(' '))
 }
 
-function clearFieldError(form: HTMLFormElement, control: FormControl) {
-  const name = control.name || control.id || fieldLabel(control)
-  const container = control.closest('label') ?? control.parentElement
-  container?.querySelectorAll<HTMLElement>('.field-error').forEach((error) => {
-    if (error.dataset.field !== name) return
-    error.remove()
-    const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter((id) => id !== error.id)
-    if (describedBy.length) control.setAttribute('aria-describedby', describedBy.join(' '))
-    else control.removeAttribute('aria-describedby')
-  })
+function clearFieldError(control: FormControl) {
+  control.setCustomValidity('')
   control.removeAttribute('aria-invalid')
-  form.querySelector('.form-error')?.remove()
 }
 
 function handleInvalidField(event: FormEvent<HTMLFormElement>) {
@@ -228,23 +205,22 @@ function handleInvalidField(event: FormEvent<HTMLFormElement>) {
   if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement)) return
   event.preventDefault()
   setFieldError(control, validationMessage(control))
+  control.reportValidity()
 }
 
 function handleFormInput(event: FormEvent<HTMLFormElement>) {
   const control = event.target
   if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement)
-    clearFieldError(event.currentTarget, control)
+    clearFieldError(control)
 }
 
 function showFormFailure(form: HTMLFormElement, error: unknown, fallback: string) {
-  const removedErrorIds = [...form.querySelectorAll<HTMLElement>('.field-error')].map((item) => item.id)
-  form.querySelectorAll<FormControl>('[aria-describedby]').forEach((control) => {
-    const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter((id) => id && !removedErrorIds.includes(id))
-    if (describedBy.length) control.setAttribute('aria-describedby', describedBy.join(' '))
-    else control.removeAttribute('aria-describedby')
+  const controls = [...form.elements].filter((element): element is FormControl =>
+    element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)
+  controls.forEach((control) => {
+    control.setCustomValidity('')
+    control.removeAttribute('aria-invalid')
   })
-  form.querySelectorAll('.field-error, .form-error').forEach((item) => item.remove())
-  form.querySelectorAll('[aria-invalid="true"]').forEach((item) => item.removeAttribute('aria-invalid'))
   const fieldErrors = error instanceof RequestError ? error.fieldErrors : {}
   const unplaced: string[] = []
   for (const [name, messages] of Object.entries(fieldErrors)) {
@@ -255,13 +231,8 @@ function showFormFailure(form: HTMLFormElement, error: unknown, fallback: string
   const message = unplaced.length
     ? unplaced.join(' ')
     : error instanceof Error && /[А-Яа-яЁё]/.test(error.message) ? error.message : fallback
-  if (message && (!Object.keys(fieldErrors).length || unplaced.length)) {
-    const general = document.createElement('div')
-    general.className = 'form-error'
-    general.setAttribute('role', 'alert')
-    general.textContent = message
-    form.prepend(general)
-  }
+  if (message && (!Object.keys(fieldErrors).length || unplaced.length) && controls.length > 0) setFieldError(controls[0], message)
+  controls.find((control) => control.validationMessage)?.reportValidity()
 }
 
 function makeStoreForm(): {
