@@ -795,7 +795,7 @@ export default function App() {
         {product.photos.length > 1 && <div className="catalog-photo-dots">{product.photos.map((photo, index) => <button className={index === activePhotoIndex ? 'active' : ''} key={photo.id} type="button" aria-label={`Фотография ${index + 1}`} onClick={() => setCatalogPhotoIndex(product.id, index)} />)}</div>}
       </div>
       <div className="product-info"><h3>{product.title}</h3><div className="product-bottom"><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong>
-        {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="badge badge-warm">Забронировано до {formatDate(product.reservedUntil, catalogTimeZoneId)}</span> : <span className="badge">Продано</span>}
+        {product.status === 'Available' ? <button className="button button-small" onClick={(event) => { event.stopPropagation(); void openBooking(product) }}>Забронировать</button> : product.status === 'Reserved' ? <span className="button button-small booking-state" title={`Забронировано до ${formatDate(product.reservedUntil, catalogTimeZoneId)}`}>Забронировано</span> : null}
       </div>
       {bookingProduct?.id === product.id && <form className="booking-form" onClick={(event) => event.stopPropagation()} onSubmit={createBooking} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
         <h4>Когда вы приедете?</h4>
