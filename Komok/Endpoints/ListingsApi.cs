@@ -175,6 +175,7 @@ public static class ListingsApi
                 item.InventoryStatus,
                 item.CreatedAt,
                 item.ReservedUntil,
+                SellerName = item.Seller.Name,
                 SellerEmail = item.Seller.Email,
                 SellerMessenger = item.Seller.Messenger,
                 SellerMessengerContact = item.Seller.MessengerContact,

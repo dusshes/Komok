@@ -20,6 +20,11 @@ public sealed class KomokDbContext(DbContextOptions<KomokDbContext> options)
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<ApplicationUser>(entity =>
+        {
+            entity.Property(user => user.Name).HasMaxLength(160);
+        });
+
         modelBuilder.Entity<Store>(entity =>
         {
             entity.Property(store => store.Name).HasMaxLength(160).IsRequired();

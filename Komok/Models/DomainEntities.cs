@@ -4,6 +4,7 @@ namespace Komok.Models;
 
 public sealed class ApplicationUser : IdentityUser
 {
+    public string? Name { get; set; }
     public string Messenger { get; set; } = "";
     public string MessengerContact { get; set; } = "";
     public string PayoutDetails { get; set; } = "";

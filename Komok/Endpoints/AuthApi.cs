@@ -37,6 +37,8 @@ public static class AuthApi
                 || string.IsNullOrWhiteSpace(configuration["Smtp:From"])))
             return Results.Problem("Регистрация временно недоступна: не настроена отправка email.", statusCode: 503);
         var inputErrors = new List<(string Field, string Message)>();
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 160)
+            inputErrors.Add(("name", "Укажите имя длиной не более 160 символов."));
         if (string.IsNullOrWhiteSpace(request.Email) || request.Email.Length > 256)
             inputErrors.Add(("email", "Укажите email длиной не более 256 символов."));
         if (!string.Equals(request.Password, request.ConfirmPassword, StringComparison.Ordinal))
@@ -58,6 +60,7 @@ public static class AuthApi
 
         var user = new ApplicationUser
         {
+            Name = request.Name.Trim(),
             UserName = normalizedEmail,
             Email = normalizedEmail,
             Messenger = request.Messenger,
@@ -179,6 +182,7 @@ public static class AuthApi
 
         return Results.Ok(new
         {
+            user.Name,
             user.Email,
             user.Messenger,
             user.MessengerContact,

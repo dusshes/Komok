@@ -95,6 +95,10 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
   .photo-credit { text-align: left; }
 }
 .reservation-details { display: grid; gap: 3px; }.reservation-details p { margin: 0; }
+.signed-name { margin: 0 0 5px; font-size: 22px; font-weight: 600; }
+.notice-success { border-color: #cbd8c8; background: #eff5eb; color: #36553a; }
+.notice-info { border-color: #c9d7df; background: #edf5f8; color: #31566a; }
+.notice-error { border-color: #e7c6bf; background: #fff3f0; color: #8f382d; }
 .catalog-controls { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(170px, .7fr) minmax(170px, .7fr) auto; align-items: end; gap: 12px; padding: 16px; margin: 18px 0 22px; border: 1px solid rgb(255 255 255 / 48%); border-radius: 10px; background: rgb(255 254 250 / 94%); color: var(--ink); box-shadow: 0 12px 35px rgb(0 0 0 / 12%); }
 .catalog-search, .catalog-sort { display: grid; gap: 7px; color: #5b6258; font-size: 12px; font-weight: 600; }
 .category-filter { position: relative; min-width: 0; }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 type Store = {
@@ -23,6 +23,8 @@ type Product = {
 type CatalogCategory = { id: number; name: string }
 type Category = CatalogCategory & { isActive: boolean }
 type CatalogResponse = { categories: CatalogCategory[]; products: Product[] }
+type NoticeKind = 'success' | 'info' | 'error'
+type Notice = { id: number; message: string; kind: NoticeKind }
 type Listing = {
   id: number
   title: string
@@ -53,6 +55,7 @@ type AdminProduct = {
   inventoryStatus: string
   reservedUntil: string | null
   timeZoneId: string
+  sellerName: string | null
   sellerEmail: string
   sellerMessenger: string
   sellerMessengerContact: string
@@ -78,6 +81,7 @@ type ManagedStore = Store & {
 }
 type BookingSlot = { value: string; label: string }
 type CurrentUser = {
+  name: string | null
   email: string
   messenger: string
   messengerContact: string
@@ -287,10 +291,13 @@ export default function App() {
   const [groupByCategory, setGroupByCategory] = useState(false)
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [view, setView] = useState<'catalog' | 'account' | 'listings' | 'new-listing' | 'admin'>('catalog')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const noticeTimer = useRef<number | null>(null)
+  const noticeId = useRef(0)
   const [loadingCatalog, setLoadingCatalog] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authBusy, setAuthBusy] = useState(false)
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -317,6 +324,30 @@ export default function App() {
   const [adminEmail, setAdminEmail] = useState('')
   const [adminStoreIds, setAdminStoreIds] = useState<number[]>([])
 
+  const clearNotice = useCallback(() => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = null
+    setNotice(null)
+  }, [])
+
+  const showNotice = useCallback((message: string, kind: NoticeKind) => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = null
+    const id = ++noticeId.current
+    setNotice({ id, message, kind })
+    if (kind !== 'error') {
+      const timer = window.setTimeout(() => {
+        setNotice((current) => current?.id === id ? null : current)
+        if (noticeTimer.current === timer) noticeTimer.current = null
+      }, 30_000)
+      noticeTimer.current = timer
+    }
+  }, [])
+
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current)
+  }, [])
+
   const loadCatalog = useCallback(async (id: number) => {
     setLoadingCatalog(true)
     try {
@@ -325,7 +356,7 @@ export default function App() {
       setCatalogCategories(catalog.categories)
       setSelectedCategoryIds((current) => current.filter((categoryId) => catalog.categories.some((category) => category.id === categoryId)))
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Не удалось загрузить каталог.')
+      showNotice(error instanceof Error ? error.message : 'Не удалось загрузить каталог.', 'error')
     } finally {
       setLoadingCatalog(false)
     }
@@ -333,12 +364,12 @@ export default function App() {
 
   const loadActiveCategories = useCallback(async () => {
     try { setActiveCategories(await api<Category[]>('/api/categories/active')) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось загрузить категории.') }
+    catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить категории.', 'error') }
   }, [])
 
   const loadAdminCategories = useCallback(async () => {
     try { setAdminCategories(await api<Category[]>('/api/admin/categories')) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось загрузить категории.') }
+    catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить категории.', 'error') }
   }, [])
 
   const loadAccount = useCallback(async () => {
@@ -354,7 +385,7 @@ export default function App() {
 
   const loadListings = useCallback(async () => {
     try { setListings(await api<Listing[]>('/api/listings/mine')) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.') }
+    catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error') }
   }, [])
 
   const loadAdminStores = useCallback(async (preferredId?: number) => {
@@ -381,7 +412,7 @@ export default function App() {
         await loadAdminProducts(selected.id)
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Не удалось загрузить магазины.')
+      showNotice(error instanceof Error ? error.message : 'Не удалось загрузить магазины.', 'error')
     }
   // loadAdminProducts is stable and selected store is used only to preserve the current choice.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -389,7 +420,7 @@ export default function App() {
 
   async function loadAdminProducts(id: number) {
     try { setAdminProducts(await api<AdminProduct[]>(`/api/admin/products?storeId=${id}`)) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось загрузить товары магазина.') }
+    catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось загрузить товары магазина.', 'error') }
   }
 
   useEffect(() => {
@@ -403,10 +434,10 @@ export default function App() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: confirmEmail, token }),
           })
-          setNotice(result.message)
+          showNotice(result.message, 'success')
           setView('account')
         } catch (error) {
-          setNotice(error instanceof Error ? error.message : 'Не удалось подтвердить email.')
+          showNotice(error instanceof Error ? error.message : 'Не удалось подтвердить email.', 'error')
           setView('account')
         }
         window.history.replaceState({}, '', window.location.pathname)
@@ -457,14 +488,13 @@ export default function App() {
     event.preventDefault()
     const form = event.currentTarget
     setAuthBusy(true)
-    setNotice('')
     try {
       if (authMode === 'register') {
         const result = await api<{ message: string }>('/api/auth/register', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, confirmPassword, messenger, messengerContact, payoutDetails }),
+          body: JSON.stringify({ name, email, password, confirmPassword, messenger, messengerContact, payoutDetails }),
         })
-        setNotice(result.message)
+        showNotice(result.message, 'info')
         return
       }
       await api('/api/auth/login', {
@@ -478,7 +508,7 @@ export default function App() {
         if (current.isStoreAdmin || current.isSuperAdmin) await loadAdminStores()
         setView(current.isStoreAdmin || current.isSuperAdmin ? 'admin' : 'listings')
       }
-      setNotice('Вы вошли в аккаунт.')
+      showNotice('Вы вошли в аккаунт.', 'success')
     } catch (error) {
       showFormFailure(form, error, 'Не удалось выполнить запрос.')
     } finally {
@@ -492,7 +522,7 @@ export default function App() {
     setListings([])
     setAdminStores([])
     setView('catalog')
-    setNotice('Вы вышли из аккаунта.')
+    showNotice('Вы вышли из аккаунта.', 'success')
   }
 
   async function createListing(event: FormEvent<HTMLFormElement>) {
@@ -506,7 +536,7 @@ export default function App() {
         body: JSON.stringify({ ...listingForm, storeId, categoryId: Number(listingForm.categoryId), askingPrice: Number(listingForm.askingPrice) }),
       })
       setListingForm({ title: '', description: '', askingPrice: '', categoryId: '' })
-      setNotice('Заявка отправлена администратору магазина.')
+      showNotice('Заявка отправлена администратору магазина.', 'success')
       await loadListings()
       setView('listings')
     } catch (error) {
@@ -528,7 +558,7 @@ export default function App() {
       setNewCategoryName('')
       await Promise.all([loadAdminCategories(), loadActiveCategories()])
       if (storeId) await loadCatalog(storeId)
-      setNotice('Категория добавлена.')
+      showNotice('Категория добавлена.', 'success')
     } catch (error) {
       showFormFailure(form, error, 'Не удалось добавить категорию.')
     } finally {
@@ -551,7 +581,7 @@ export default function App() {
           messengerContact: booking.messengerContact,
         }),
       })
-      setNotice('Товар забронирован. Сохраните выбранное время визита.')
+      showNotice('Товар забронирован. Сохраните выбранное время визита.', 'success')
       setBookingProduct(null)
       setBooking({ arrivalAt: '', name: '', messenger: 'Zalo', messengerContact: '' })
       setBookingSlots([])
@@ -574,7 +604,7 @@ export default function App() {
       setBookingSlots(options.slots)
     } catch (error) {
       setBookingProduct(null)
-      setNotice(error instanceof Error ? error.message : 'Не удалось загрузить время визита.')
+      showNotice(error instanceof Error ? error.message : 'Не удалось загрузить время визита.', 'error')
     } finally {
       setBookingLoading(false)
     }
@@ -584,8 +614,8 @@ export default function App() {
     try {
       await api(`/api/listings/${id}/${action}`, { method: 'POST' })
       await loadListings()
-      setNotice(action === 'delivery' ? 'Отметили передачу товара для доставки.' : 'Заявка отменена.')
-    } catch (error) { setNotice(error instanceof Error ? error.message : 'Не удалось изменить заявку.') }
+      showNotice(action === 'delivery' ? 'Отметили передачу товара для доставки.' : 'Заявка отменена.', 'success')
+    } catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось изменить заявку.', 'error') }
   }
 
   async function saveStore(event: FormEvent<HTMLFormElement>) {
@@ -610,7 +640,7 @@ export default function App() {
         })
         savedStoreId = created.id
       }
-      setNotice('Настройки магазина сохранены.')
+      showNotice('Настройки магазина сохранены.', 'success')
       await loadAdminStores(savedStoreId ?? undefined)
       const publicStores = await api<Store[]>('/api/stores')
       setStores(publicStores)
@@ -626,7 +656,7 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: adminEmail, storeIds: adminStoreIds }),
       })
-      setNotice('Администратор назначен выбранным магазинам.')
+      showNotice('Администратор назначен выбранным магазинам.', 'success')
       setAdminEmail('')
     } catch (error) { showFormFailure(form, error, 'Не удалось назначить администратора.') }
   }
@@ -721,7 +751,7 @@ export default function App() {
         </nav>
       </header>
 
-      {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="Закрыть уведомление" onClick={() => setNotice('')}>×</button></div>}
+      {notice && <div className={`notice notice-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.message}</span><button aria-label="Закрыть уведомление" onClick={clearNotice}>×</button></div>}
 
       {view === 'catalog' && <section className="page-section">
         <div className="hero">
@@ -756,12 +786,13 @@ export default function App() {
       {view === 'account' && <section className="narrow-section">
         <p className="eyebrow">Личный кабинет</p>
         <h1>{user ? 'Ваш аккаунт' : authMode === 'login' ? 'С возвращением' : 'Стать продавцом'}</h1>
-        {user ? <div className="panel"><p className="signed-email">{user.email}</p><p>{user.isSuperAdmin ? 'Главный администратор' : user.isStoreAdmin ? 'Администратор магазина' : 'Продавец'}</p><p className="muted">{user.messenger}: {user.messengerContact}</p><button className="button button-outline" onClick={() => void logout()}>Выйти</button></div> : <>
+        {user ? <div className="panel">{user.name && <p className="signed-name">{user.name}</p>}<p className="signed-email">{user.email}</p><p>{user.isSuperAdmin ? 'Главный администратор' : user.isStoreAdmin ? 'Администратор магазина' : 'Продавец'}</p><p className="muted">{user.messenger}: {user.messengerContact}</p><button className="button button-outline" onClick={() => void logout()}>Выйти</button></div> : <>
           <div className="segmented"><button className={authMode === 'login' ? 'selected' : ''} onClick={() => setAuthMode('login')}>Войти</button><button className={authMode === 'register' ? 'selected' : ''} onClick={() => setAuthMode('register')}>Регистрация продавца</button></div>
           <form className="panel form-stack" onSubmit={submitAuth} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
             <label>Email<input name="email" type="email" autoComplete="email" required maxLength={256} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
             <label>Пароль<input name="password" type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} required minLength={10} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             {authMode === 'register' && <>
+              <label>Имя<input name="name" autoComplete="name" required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
               <label>Повторите пароль<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={10} maxLength={128} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
               <label>Мессенджер<select name="messenger" required value={messenger} onChange={(event) => setMessenger(event.target.value)}><option>Telegram</option><option>WhatsApp</option><option>MAX</option><option>Zalo</option></select></label>
               <label>Контакт в мессенджере<input name="messengerContact" required maxLength={200} value={messengerContact} onChange={(event) => setMessengerContact(event.target.value)} /></label>
@@ -834,11 +865,11 @@ export default function App() {
           <div className="category-admin-list">{adminCategories.map((category) => <AdminCategoryRow key={category.id} category={category} onSaved={async () => {
             await Promise.all([loadAdminCategories(), loadActiveCategories()])
             if (storeId) await loadCatalog(storeId)
-          }} onNotice={setNotice} />)}</div>
+          }} onNotice={showNotice} />)}</div>
         </section>}
         {adminStores.length > 0 ? <>
           <div className="section-heading admin-products-heading"><h2>Заявки и товары</h2><label className="store-filter">Магазин<select value={adminStoreId ?? ''} onChange={(event) => { const id = Number(event.target.value); selectManagedStore(id); void loadAdminProducts(id) }}>{adminStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label></div>
-          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (storeId) await loadCatalog(storeId); await loadListings() }} onNotice={setNotice} />)}</div>}
+          {adminProducts.length === 0 ? <div className="empty-state"><h3>Заявок и товаров пока нет</h3></div> : <div className="admin-product-list">{adminProducts.map((product) => <AdminProductCard key={product.id} product={product} activeCategories={activeCategories} onChanged={async () => { if (adminStoreId) await loadAdminProducts(adminStoreId); if (storeId) await loadCatalog(storeId); await loadListings() }} onNotice={showNotice} />)}</div>}
         </> : !user?.isSuperAdmin && <div className="empty-state"><h3>Нет назначенных магазинов</h3><p>Попросите главного администратора назначить вам магазины.</p></div>}
       </section>}
 
@@ -850,7 +881,7 @@ export default function App() {
 function AdminCategoryRow({ category, onSaved, onNotice }: {
   category: Category
   onSaved: () => Promise<void>
-  onNotice: (message: string) => void
+  onNotice: (message: string, kind: NoticeKind) => void
 }) {
   const [name, setName] = useState(category.name)
   const [isActive, setIsActive] = useState(category.isActive)
@@ -870,10 +901,10 @@ function AdminCategoryRow({ category, onSaved, onNotice }: {
       })
       setIsActive(nextIsActive)
       await onSaved()
-      onNotice('Категория сохранена.')
+      onNotice('Категория сохранена.', 'success')
     } catch (error) {
       if (form) showFormFailure(form, error, 'Не удалось сохранить категорию.')
-      else onNotice(error instanceof Error ? error.message : 'Не удалось сохранить категорию.')
+      else onNotice(error instanceof Error ? error.message : 'Не удалось сохранить категорию.', 'error')
     } finally {
       setBusy(false)
     }
@@ -898,7 +929,7 @@ function AdminProductCard({ product, activeCategories, onChanged, onNotice }: {
   product: AdminProduct
   activeCategories: Category[]
   onChanged: () => Promise<void>
-  onNotice: (message: string) => void
+  onNotice: (message: string, kind: NoticeKind) => void
 }) {
   const [title, setTitle] = useState(product.title)
   const [description, setDescription] = useState(product.description)
@@ -916,11 +947,11 @@ function AdminProductCard({ product, activeCategories, onChanged, onNotice }: {
       await api(path, body === undefined ? { method: 'POST' } : {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
-      onNotice('Изменение сохранено. Продавцу отправлено email-уведомление.')
+      onNotice('Изменение сохранено. Продавцу отправлено email-уведомление.', 'success')
       await onChanged()
     } catch (error) {
       if (form) showFormFailure(form, error, 'Не удалось изменить товар.')
-      else onNotice(error instanceof Error ? error.message : 'Не удалось изменить товар.')
+      else onNotice(error instanceof Error ? error.message : 'Не удалось изменить товар.', 'error')
     }
     finally { setBusy(false) }
   }
@@ -942,7 +973,7 @@ function AdminProductCard({ product, activeCategories, onChanged, onNotice }: {
   }
 
   return <article className="admin-product panel">
-    <div className="admin-product-title"><div><span className="badge">{listingLabels[product.listingStatus] ?? product.listingStatus} · {product.inventoryStatus}</span><h3>{product.title}</h3><p className="muted">Продавец: {product.sellerEmail} · {product.sellerMessenger}: {product.sellerMessengerContact}</p></div><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong></div>
+    <div className="admin-product-title"><div><span className="badge">{listingLabels[product.listingStatus] ?? product.listingStatus} · {product.inventoryStatus}</span><h3>{product.title}</h3><p className="muted">Продавец: {product.sellerName ? `${product.sellerName} · ` : ''}{product.sellerEmail} · {product.sellerMessenger}: {product.sellerMessengerContact}</p></div><strong>{formatMoney(product.askingPrice, product.currencyCode)}</strong></div>
     {product.inventoryStatus === 'Reserved' && <div className="reservation-details"><p className="muted">Бронь до {formatDate(product.reservedUntil ?? null, product.timeZoneId)}</p><p className="muted">Прибытие на осмотр {formatDate(product.arrivalAt, product.timeZoneId)}</p>{(product.buyerName || (product.buyerMessenger && product.buyerMessengerContact)) && <p className="muted">{product.buyerName}{product.buyerName && product.buyerMessenger && product.buyerMessengerContact ? ' · ' : ''}{product.buyerMessenger && product.buyerMessengerContact ? `${product.buyerMessenger}: ${product.buyerMessengerContact}` : ''}</p>}</div>}
     {['Submitted', 'NeedsRevision'].includes(product.listingStatus) && <form className="form-stack review-fields" onSubmit={approveListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
       <label>Название<input name="title" required value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} /></label>

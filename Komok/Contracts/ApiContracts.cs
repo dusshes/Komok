@@ -3,6 +3,7 @@ using Komok.Models;
 namespace Komok.Contracts;
 
 public sealed record RegisterRequest(
+    string Name,
     string Email,
     string Password,
     string ConfirmPassword,
