@@ -4,9 +4,6 @@ using Komok.Models;
 using Komok.Services;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 using System.Globalization;
@@ -114,6 +111,7 @@ public static class CatalogApi
         long photoId,
         string? size,
         KomokDbContext db,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         var photo = await db.ProductPhotos.AsNoTracking()
@@ -122,50 +120,48 @@ public static class CatalogApi
             .Select(item => new { item.ContentType, item.Data })
             .SingleOrDefaultAsync(cancellationToken);
         if (photo is null) return Results.NotFound();
-        if (!TryGetPhotoSize(size, out var width, out var height)) return Results.BadRequest(new { message = "Неизвестный размер фотографии." });
-        if (width is null) return Results.File(photo.Data, photo.ContentType);
+        if (!TryGetPhotoSize(size, out var maxSide, out var quality)) return Results.BadRequest(new { message = "Неизвестный размер фотографии." });
+        httpContext.Response.Headers["Cache-Control"] = "public, max-age=31536000, immutable";
+        if (maxSide is null) return Results.File(photo.Data, photo.ContentType);
 
         using var image = Image.Load(photo.Data);
-        image.Mutate(context => context.Resize(new ResizeOptions
+        if (Math.Max(image.Width, image.Height) > maxSide.Value)
         {
-            Size = new Size(width.Value, height!.Value),
-            Mode = ResizeMode.Max
-        }));
+            image.Mutate(context => context.Resize(new ResizeOptions
+            {
+                Size = new Size(maxSide.Value, maxSide.Value),
+                Mode = ResizeMode.Max,
+                Sampler = KnownResamplers.Lanczos3
+            }));
+        }
         await using var output = new MemoryStream();
-        image.Save(output, GetEncoder(photo.ContentType));
-        return Results.File(output.ToArray(), photo.ContentType);
+        image.Save(output, new WebpEncoder { Quality = quality });
+        return Results.File(output.ToArray(), "image/webp");
     }
 
-    private static bool TryGetPhotoSize(string? size, out int? width, out int? height)
+    private static bool TryGetPhotoSize(string? size, out int? maxSide, out int quality)
     {
         switch (size?.ToLowerInvariant())
         {
             case null:
             case "original":
-                width = null;
-                height = null;
+                maxSide = null;
+                quality = 100;
                 return true;
             case "thumbnail":
-                width = 480;
-                height = 360;
+                maxSide = 480;
+                quality = 75;
                 return true;
             case "medium":
-                width = 960;
-                height = 720;
+                maxSide = 1600;
+                quality = 82;
                 return true;
             default:
-                width = null;
-                height = null;
+                maxSide = null;
+                quality = 100;
                 return false;
         }
     }
-
-    private static IImageEncoder GetEncoder(string contentType) => contentType switch
-    {
-        "image/png" => new PngEncoder(),
-        "image/webp" => new WebpEncoder(),
-        _ => new JpegEncoder()
-    };
 
     private static async Task<IResult> GetBookingOptionsAsync(
         long productId,

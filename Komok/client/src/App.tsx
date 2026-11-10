@@ -1105,7 +1105,7 @@ export default function App() {
       window.addEventListener('pointerup', handlePointerUp, { once: true })
     }
     return <div className="modal-gallery" onPointerDown={changePhotoBySwipe}>
-      {activePhoto ? <img src={activePhoto.originalUrl ?? activePhoto.url} alt={product.title} onClick={() => {
+      {activePhoto ? <img src={activePhoto.mediumUrl ?? activePhoto.url} alt={product.title} onClick={() => {
         if (ignoreNextDetailPhotoClick.current) { ignoreNextDetailPhotoClick.current = false; return }
         setIsPhotoViewerOpen(true)
       }} style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', cursor: 'zoom-in' }} /> : <span className="product-symbol">✳</span>}
