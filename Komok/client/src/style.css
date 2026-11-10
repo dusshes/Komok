@@ -92,7 +92,7 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgb(4 10 14 / 72%); overflow-y: auto; }
 .product-modal { position: relative; width: min(760px, 100%); max-height: calc(100vh - 48px); padding: 28px; border-radius: 12px; background: var(--paper); color: var(--ink); box-shadow: 0 22px 70px #0008; overflow-y: auto; }
 .modal-close { position: absolute; top: 10px; right: 14px; z-index: 1; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgb(255 254 250 / 85%); color: var(--ink); font-size: 27px; line-height: 1; }
-.modal-gallery { position: relative; display: flex; align-items: center; justify-content: center; height: min(52vw, 430px); margin: -28px -28px 24px; padding: 28px; overflow: hidden; background: #eee8da; touch-action: pan-y; user-select: none; }
+.modal-gallery { position: relative; display: flex; align-items: center; justify-content: center; height: min(65vh, 560px); margin: -28px -28px 24px; padding: 0; overflow: hidden; background: #eee8da; touch-action: pan-y; user-select: none; }
 .modal-gallery img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; border-radius: 6px; object-fit: contain; }
 .modal-photo-dots { position: absolute; right: 0; bottom: 12px; left: 0; display: flex; justify-content: center; gap: 6px; }
 .modal-photo-dots button { width: 8px; height: 8px; padding: 0; border: 1px solid white; border-radius: 50%; background: rgb(255 255 255 / 60%); box-shadow: 0 1px 3px #0005; }.modal-photo-dots button.active { background: white; transform: scale(1.2); }
