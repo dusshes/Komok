@@ -96,8 +96,8 @@ public static class CatalogApi
                     .Select(photo => new
                     {
                         photo.Id,
-                        ThumbnailUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=thumbnail",
-                        MediumUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=medium",
+                        ThumbnailUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=thumbnail&v=2",
+                        MediumUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=medium&v=2",
                         OriginalUrl = $"/api/products/{product.Id}/photos/{photo.Id}?size=original"
                     })
             })
@@ -125,6 +125,8 @@ public static class CatalogApi
         if (maxSide is null) return Results.File(photo.Data, photo.ContentType);
 
         using var image = Image.Load(photo.Data);
+        image.Mutate(context => context.AutoOrient());
+        image.Metadata.ExifProfile = null;
         if (Math.Max(image.Width, image.Height) > maxSide.Value)
         {
             image.Mutate(context => context.Resize(new ResizeOptions
