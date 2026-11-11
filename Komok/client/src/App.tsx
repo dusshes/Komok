@@ -1184,7 +1184,7 @@ export default function App() {
       {detailProduct && <div className="modal-backdrop" role="presentation" onClick={closeProductDetail}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close" type="button" aria-label="Закрыть" onClick={closeProductDetail}>×</button>
         {renderDetailGallery(detailProduct)}
-        <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title" title={detailProduct.title}>{detailProduct.title}</h2>
+        <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title">{detailProduct.title}</h2>
         <p className="modal-description">{detailProduct.description}</p>
         <div className="modal-bottom"><strong>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</strong>
           {detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано до {formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
