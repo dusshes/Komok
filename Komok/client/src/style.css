@@ -127,6 +127,8 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
   .product-grid { grid-template-columns: 1fr; }.product-visual { height: 205px; }.hero h1 { font-size: 41px; }.panel { padding: 19px; }.section-heading h1, .section-heading h2, .narrow-section h1 { font-size: 30px; }.two-columns { grid-template-columns: 1fr; }.interval-row { grid-template-columns: 1.25fr 1fr 1fr 26px; gap: 4px; }.commission-row { grid-template-columns: .8fr 1.3fr .8fr 26px; }.interval-row select, .interval-row input { padding: 7px 4px; font-size: 11px; }.footer { font-size: 10px; }
 }
 
+
+
 .listing-row { border-color: rgb(255 255 255 / 48%); border-radius: 12px; background: rgb(255 254 250 / 95%); color: var(--ink); box-shadow: 0 12px 35px rgb(0 0 0 / 16%); }
 .photo-credit { line-height: 1.6; }
 @media (max-width: 800px) {
@@ -173,4 +175,38 @@ input:focus, textarea:focus, select:focus { outline: 3px solid #315a4220; border
   .photo-viewer-previous { left: 8px; }
   .photo-viewer-next { right: 8px; }
   .photo-viewer-close { top: 10px; right: 10px; width: 40px; height: 40px; }
+}
+
+.listing-groups { display: grid; gap: 28px; }
+.listing-group > h2 { margin: 0 0 10px; color: white; font-size: 23px; font-weight: 500; text-shadow: 0 1px 5px #0008; }
+.listing-list { margin-top: 0; }
+.listing-row { display: grid; grid-template-columns: minmax(0, 1fr) 190px; align-items: stretch; gap: 18px; height: 174px; padding: 12px; overflow: hidden; cursor: pointer; }
+.listing-card-content { display: grid; min-width: 0; grid-template-columns: 150px minmax(0, 1fr); align-items: stretch; gap: 18px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.listing-card-content:focus-visible { outline: 3px solid #e8c38b; outline-offset: -3px; }
+.listing-photo { display: grid; place-items: center; min-width: 0; height: 148px; overflow: hidden; border-radius: 7px; background: #eee8da; }
+.listing-photo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.listing-photo .product-symbol { font-size: 54px; }
+.listing-info { display: flex; min-width: 0; flex-direction: column; justify-content: center; overflow: hidden; }
+.listing-info > .badge { align-self: flex-start; flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listing-info h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listing-info p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listing-actions { display: flex; min-width: 0; flex-direction: column; justify-content: center; align-items: stretch; gap: 7px; }
+.listing-actions .button, .listing-actions .button-quiet { max-width: 100%; margin: 0; }
+.listing-actions .button-quiet { min-height: 32px; }
+@media (max-width: 800px) {
+  .listing-row { grid-template-columns: minmax(0, 1fr) 150px; height: 162px; gap: 12px; padding: 10px; }
+  .listing-card-content { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
+  .listing-photo { height: 140px; }
+  .listing-info h3 { margin: 6px 0 3px; font-size: 17px; }
+  .listing-actions .button { padding: 0 8px; font-size: 11px; }
+}
+@media (max-width: 480px) {
+  .listing-row { grid-template-columns: minmax(0, 1fr) 98px; height: 148px; gap: 8px; padding: 8px; }
+  .listing-card-content { grid-template-columns: 76px minmax(0, 1fr); gap: 8px; }
+  .listing-photo { height: 130px; }
+  .listing-info .badge { padding: 4px 6px; font-size: 9px; }
+  .listing-info h3 { font-size: 14px; }
+  .listing-info p { font-size: 11px; }
+  .listing-actions .button { min-height: 34px; padding: 0 5px; font-size: 10px; }
+  .listing-actions .button-quiet { padding: 5px 2px; font-size: 10px; }
 }

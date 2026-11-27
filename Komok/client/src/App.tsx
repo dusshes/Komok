@@ -30,6 +30,8 @@ type NoticeKind = 'success' | 'info' | 'error'
 type Notice = { id: number; message: string; kind: NoticeKind }
 type Listing = {
   id: number
+  categoryId: number
+  category: string
   title: string
   description: string
   askingPrice: number
@@ -44,6 +46,7 @@ type Listing = {
   payoutAmount: number | null
   payoutStatus: string
   currency: string
+  createdAt: string
   photos: Photo[]
 }
 type AdminProduct = {
@@ -127,29 +130,52 @@ interface AppRoute {
   view: AppView
   authMode: 'login' | 'register'
   productId: number | null
+  listingId: number | null
   booking: boolean
 }
 
 function routeFromPath(pathname: string): AppRoute {
   const suffix = pathname.match(/^\/stores\/\d+(?:\/(.*))?$/)?.[1] ?? ''
-  if (suffix === '' || suffix === 'catalog') return { view: 'catalog', authMode: 'login', productId: null, booking: false }
-  if (suffix === 'my-listings') return { view: 'listings', authMode: 'login', productId: null, booking: false }
-  if (suffix === 'management') return { view: 'admin', authMode: 'login', productId: null, booking: false }
-  if (suffix === 'store-management') return { view: 'store-admin', authMode: 'login', productId: null, booking: false }
-  if (suffix === 'account' || suffix === 'login') return { view: 'account', authMode: 'login', productId: null, booking: false }
-  if (suffix === 'register') return { view: 'account', authMode: 'register', productId: null, booking: false }
-  if (suffix === 'listings/new') return { view: 'new-listing', authMode: 'login', productId: null, booking: false }
+  if (suffix === '' || suffix === 'catalog') return { view: 'catalog', authMode: 'login', productId: null, listingId: null, booking: false }
+  if (suffix === 'my-listings') return { view: 'listings', authMode: 'login', productId: null, listingId: null, booking: false }
+  const listing = suffix.match(/^my-listings\/products\/(\d+)$/)
+  if (listing) {
+    const listingId = Number(listing[1])
+    if (Number.isSafeInteger(listingId) && listingId > 0)
+      return { view: 'listings', authMode: 'login', productId: null, listingId, booking: false }
+  }
+  if (suffix === 'management') return { view: 'admin', authMode: 'login', productId: null, listingId: null, booking: false }
+  if (suffix === 'store-management') return { view: 'store-admin', authMode: 'login', productId: null, listingId: null, booking: false }
+  if (suffix === 'account' || suffix === 'login') return { view: 'account', authMode: 'login', productId: null, listingId: null, booking: false }
+  if (suffix === 'register') return { view: 'account', authMode: 'register', productId: null, listingId: null, booking: false }
+  if (suffix === 'listings/new') return { view: 'new-listing', authMode: 'login', productId: null, listingId: null, booking: false }
   const product = suffix.match(/^products\/(\d+)(?:\/(booking))?$/)
   if (product) {
     const productId = Number(product[1])
     if (Number.isSafeInteger(productId) && productId > 0)
-      return { view: 'catalog', authMode: 'login', productId, booking: product[2] === 'booking' }
+      return { view: 'catalog', authMode: 'login', productId, listingId: null, booking: product[2] === 'booking' }
   }
-  return { view: 'catalog', authMode: 'login', productId: null, booking: false }
+  return { view: 'catalog', authMode: 'login', productId: null, listingId: null, booking: false }
 }
 
 function storePagePath(storeId: number, suffix = ''): string {
   return `/stores/${storeId}${suffix ? `/${suffix}` : ''}`
+}
+
+function productFromListing(listing: Listing): Product {
+  return {
+    id: listing.id,
+    categoryId: listing.categoryId,
+    category: listing.category,
+    title: listing.title,
+    description: listing.description,
+    askingPrice: listing.askingPrice,
+    publishedAt: null,
+    currencyCode: listing.currency,
+    status: listing.inventoryStatus === 'Sold' ? 'Sold' : listing.inventoryStatus === 'Reserved' ? 'Reserved' : 'Available',
+    reservedUntil: listing.reservedUntil,
+    photos: listing.photos,
+  }
 }
 
 function replaceStorePath(storeId: number) {
@@ -347,6 +373,7 @@ export default function App() {
   const [bookingSlots, setBookingSlots] = useState<BookingSlot[]>([])
   const [bookingLoading, setBookingLoading] = useState(false)
   const [detailProduct, setDetailProduct] = useState<Product | null>(null)
+  const [detailListingId, setDetailListingId] = useState<number | null>(null)
   const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false)
   const [catalogPhotoIndexes, setCatalogPhotoIndexes] = useState<Record<number, number>>({})
   const [detailPhotoIndexes, setDetailPhotoIndexes] = useState<Record<number, number>>({})
@@ -489,15 +516,16 @@ export default function App() {
     }
   }, [])
 
-  const loadListings = useCallback(async (storeId: number) => {
+  const loadListings = useCallback(async (storeId: number): Promise<Listing[]> => {
     const requestId = ++listingsRequestId.current
     try {
       const data = await api<Listing[]>(`/api/listings/mine?storeId=${storeId}`)
-      if (requestId !== listingsRequestId.current) return
-      setListings(Array.isArray(data)
+      const normalized = Array.isArray(data)
         ? data.map((listing) => ({
           ...listing,
           id: Number.isFinite(listing.id) ? listing.id : 0,
+          categoryId: Number.isFinite(listing.categoryId) ? listing.categoryId : 0,
+          category: typeof listing.category === 'string' ? listing.category : 'Другое',
           title: typeof listing.title === 'string' ? listing.title : 'Без названия',
           description: typeof listing.description === 'string' ? listing.description : '',
           askingPrice: Number.isFinite(listing.askingPrice) ? listing.askingPrice : 0,
@@ -505,13 +533,18 @@ export default function App() {
           listingStatus: typeof listing.listingStatus === 'string' ? listing.listingStatus : 'Submitted',
           inventoryStatus: typeof listing.inventoryStatus === 'string' ? listing.inventoryStatus : 'NotReceived',
           currency: typeof listing.currency === 'string' && listing.currency.length === 3 ? listing.currency : 'RUB',
+          createdAt: typeof listing.createdAt === 'string' ? listing.createdAt : '',
           photos: Array.isArray(listing.photos) ? listing.photos : [],
         }))
-        : [])
+        : []
+      if (requestId !== listingsRequestId.current) return []
+      setListings(normalized)
+      return normalized
     }
     catch (error) {
       if (requestId === listingsRequestId.current)
         showNotice(error instanceof Error ? error.message : 'Не удалось загрузить заявки.', 'error')
+      return []
     }
   }, [])
 
@@ -609,7 +642,7 @@ export default function App() {
         if ((currentUser.isStoreAdmin || currentUser.isSuperAdmin) && activeStoreId !== null) await loadAdminStores(activeStoreId)
       }
       const initialRoute = emailConfirmationLink
-        ? { view: 'account', authMode: 'login', productId: null, booking: false } satisfies AppRoute
+        ? { view: 'account', authMode: 'login', productId: null, listingId: null, booking: false } satisfies AppRoute
         : routeFromPath(window.location.pathname)
       applyLocationRoute(initialRoute, initialCatalog, currentUser, selectedStoreId)
     })()
@@ -792,11 +825,21 @@ export default function App() {
   }
 
   function closeProductDetail() {
+    const wasListing = detailListingId !== null
     setDetailProduct(null)
+    setDetailListingId(null)
     setIsPhotoViewerOpen(false)
     setBookingProduct(null)
     if (catalogStoreId !== null)
-      window.history.replaceState({}, '', storePagePath(catalogStoreId))
+      window.history.replaceState({}, '', storePagePath(catalogStoreId, wasListing ? 'my-listings' : ''))
+  }
+
+  function openListingDetails(listing: Listing) {
+    setDetailListingId(listing.id)
+    setDetailProduct(productFromListing(listing))
+    setIsPhotoViewerOpen(false)
+    if (catalogStoreId !== null)
+      window.history.pushState({}, '', storePagePath(catalogStoreId, `my-listings/products/${listing.id}`))
   }
 
   function cancelBooking() {
@@ -809,6 +852,11 @@ export default function App() {
     try {
       await api(`/api/listings/${id}/${action}`, { method: 'POST' })
       if (catalogStoreId !== null) await loadListings(catalogStoreId)
+      if (detailListingId === id) {
+        setDetailProduct(null)
+        setDetailListingId(null)
+        if (catalogStoreId !== null) window.history.replaceState({}, '', storePagePath(catalogStoreId, 'my-listings'))
+      }
       showNotice(action === 'delivery' ? 'Отметили передачу товара для доставки.' : 'Заявка отменена.', 'success')
     } catch (error) { showNotice(error instanceof Error ? error.message : 'Не удалось изменить заявку.', 'error') }
   }
@@ -905,6 +953,7 @@ export default function App() {
     setCatalogStoreId(id)
     const activeRoute = routeFromPath(window.location.pathname)
     if (updateHistory && activeRoute.productId !== null) window.history.pushState({}, '', storePagePath(id))
+    else if (updateHistory && activeRoute.listingId !== null) window.history.pushState({}, '', storePagePath(id, 'my-listings'))
     else if (updateHistory) pushStorePath(id)
     else replaceStorePath(id)
     setSelectedCategoryIds([])
@@ -912,6 +961,7 @@ export default function App() {
     setCatalogSort('newest')
     setCatalogPhotoIndexes({})
     setDetailProduct(null)
+    setDetailListingId(null)
     setIsPhotoViewerOpen(false)
     setBookingProduct(null)
     setBookingSlots([])
@@ -937,6 +987,7 @@ export default function App() {
     setView(nextView)
     setAuthMode(nextAuthMode)
     setDetailProduct(null)
+    setDetailListingId(null)
     setIsPhotoViewerOpen(false)
     setBookingProduct(null)
     if (catalogStoreId !== null)
@@ -945,6 +996,14 @@ export default function App() {
 
   function applyLocationRoute(route: AppRoute, catalog: Product[], currentUser: CurrentUser | null, storeId = catalogStoreId) {
     setIsPhotoViewerOpen(false)
+    if (route.listingId !== null && !currentUser) {
+      showNotice('Войдите в аккаунт, чтобы открыть свои товары.', 'info')
+      setView('account')
+      setAuthMode('login')
+      setDetailListingId(null)
+      if (storeId !== null) window.history.replaceState({}, '', storePagePath(storeId, 'login'))
+      return
+    }
     if ((route.view === 'admin' && !(currentUser?.isStoreAdmin || currentUser?.isSuperAdmin))
       || (route.view === 'store-admin' && !currentUser?.isSuperAdmin)) {
       showNotice('У вас недостаточно прав для этого раздела.', 'error')
@@ -955,13 +1014,28 @@ export default function App() {
 
     setView(route.view)
     setAuthMode(route.authMode)
+    setDetailListingId(route.listingId)
     if (route.productId === null) {
       setDetailProduct(null)
       setBookingProduct(null)
     } else if (!route.booking) {
       setBookingProduct(null)
     }
-    if (route.view === 'listings' && currentUser && storeId !== null) void loadListings(storeId)
+    if (route.view === 'listings' && currentUser && storeId !== null) {
+      if (route.listingId !== null) {
+        void loadListings(storeId).then((items) => {
+          const listing = items.find((item) => item.id === route.listingId)
+          if (!listing) {
+            setDetailListingId(null)
+            setDetailProduct(null)
+            showNotice('Эта заявка не найдена среди ваших товаров выбранного магазина.', 'error')
+            window.history.replaceState({}, '', storePagePath(storeId, 'my-listings'))
+            return
+          }
+          setDetailProduct(productFromListing(listing))
+        })
+      } else void loadListings(storeId)
+    }
     if (route.view === 'admin' && currentUser && storeId !== null) {
       if (currentUser.isSuperAdmin || currentUser.storeIds.includes(storeId)) void loadAdminProducts(storeId)
       else { setAdminStoreId(null); setAdminProducts([]) }
@@ -1023,6 +1097,20 @@ export default function App() {
     category,
     products: visibleProducts.filter((product) => product.categoryId === category.id),
   })).filter((group) => group.products.length > 0)
+  const newestListings = [...listings].sort((left, right) => {
+    const leftCreated = Date.parse(left.createdAt)
+    const rightCreated = Date.parse(right.createdAt)
+    return (Number.isFinite(rightCreated) ? rightCreated : 0) - (Number.isFinite(leftCreated) ? leftCreated : 0)
+      || right.id - left.id
+  })
+  const listingGroups = [
+    { title: 'Требуются ваши действия', items: newestListings.filter((item) => ['NeedsRevision', 'AwaitingDelivery'].includes(item.listingStatus)) },
+    { title: 'На обработке у администратора', items: newestListings.filter((item) => ['Submitted', 'Delivery'].includes(item.listingStatus)) },
+    { title: 'Товары в продаже', items: newestListings.filter((item) => item.listingStatus === 'OnSale' && item.inventoryStatus !== 'Sold') },
+    { title: 'Проданные товары', items: newestListings.filter((item) => item.inventoryStatus === 'Sold') },
+    { title: 'Отменённые', items: newestListings.filter((item) => ['Cancelled', 'Rejected'].includes(item.listingStatus)) },
+  ]
+  const detailListing = detailListingId === null ? null : listings.find((item) => item.id === detailListingId) ?? null
 
   function setCatalogPhotoIndex(productId: number, index: number) {
     setCatalogPhotoIndexes((current) => ({ ...current, [productId]: index }))
@@ -1181,13 +1269,20 @@ export default function App() {
 
       {notice && <div className={`notice notice-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.message}</span><button aria-label="Закрыть уведомление" onClick={clearNotice}>×</button></div>}
 
-      {detailProduct && <div className="modal-backdrop" role="presentation" onClick={closeProductDetail}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
+      {detailProduct && (detailListingId === null || detailListing !== null) && <div className="modal-backdrop" role="presentation" onClick={closeProductDetail}><section className="product-modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close" type="button" aria-label="Закрыть" onClick={closeProductDetail}>×</button>
         {renderDetailGallery(detailProduct)}
         <p className="eyebrow">{detailProduct.category}</p><h2 id="product-modal-title">{detailProduct.title}</h2>
+        {detailListing && <><p className="muted">{detailListing.store} · {listingLabels[detailListing.listingStatus] ?? detailListing.listingStatus}</p>
+          {(detailListing.reservedUntil || detailListing.arrivalAt) && <div className="reservation-details">{detailListing.reservedUntil && <p className="muted">Бронь до {formatDate(detailListing.reservedUntil, detailListing.timeZoneId)}</p>}{detailListing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(detailListing.arrivalAt, detailListing.timeZoneId)} ({formatRelativeArrival(detailListing.arrivalAt, relativeClock)})</p>}</div>}
+          {detailListing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(detailListing.payoutAmount, detailListing.currency)} · {detailListing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
+        </>}
         <p className="modal-description">{detailProduct.description}</p>
         <div className="modal-bottom"><strong>{formatMoney(detailProduct.askingPrice, detailProduct.currencyCode)}</strong>
-          {detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано до {formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
+          {detailListing ? detailListing.listingStatus === 'AwaitingDelivery' ? <div className="button-row"><button className="button button-small" onClick={() => void listingAction(detailListing.id, 'delivery')}>Передал в доставку</button><button className="button-quiet" onClick={() => void listingAction(detailListing.id, 'cancel')}>Отменить заявку</button></div>
+            : detailListing.listingStatus === 'NeedsRevision' ? <span className="muted">Свяжитесь с магазином, чтобы уточнить доработку.</span>
+              : <span className="badge">{detailListing.inventoryStatus === 'Sold' ? 'Товар продан' : listingLabels[detailListing.listingStatus] ?? detailListing.listingStatus}</span>
+            : detailProduct.status === 'Available' ? (bookingProduct?.id === detailProduct.id ? <span className="muted">Заполните форму бронирования ниже</span> : <button className="button button-small" onClick={() => void openBooking(detailProduct)}>Забронировать</button>) : detailProduct.status === 'Reserved' ? <span className="button button-small booking-state">Забронировано до {formatDate(detailProduct.reservedUntil, catalogTimeZoneId)}</span> : <span className="button button-small booking-state sold-state">Продано</span>}
         </div>
           {bookingProduct?.id === detailProduct.id && renderBookingForm()}
       </section></div>}
@@ -1242,13 +1337,19 @@ export default function App() {
 
       {view === 'listings' && <section className="page-section">
         <div className="section-heading"><div><p className="eyebrow">Для продавцов</p><h1>Мои товары</h1></div><button className="button" onClick={() => navigateTo('new-listing', 'listings/new')}>＋ Подать заявку</button></div>
-        {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => navigateTo('new-listing', 'listings/new')}>Подать заявку</button></div> : <div className="listing-list">{listings.map((listing) => <article className="listing-row" key={listing.id}>
-           {listing.photos?.length > 0 && <div className="photo-strip">{listing.photos.map((photo) => <img key={photo.id} src={photo.url} alt={listing.title} />)}</div>}
-          <div><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3>{listing.title}</h3><p>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
-            {(listing.reservedUntil || listing.arrivalAt) && <div className="reservation-details">{listing.reservedUntil && <p className="muted">Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}{listing.arrivalAt && <p className="muted">Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)} ({formatRelativeArrival(listing.arrivalAt, relativeClock)})</p>}</div>}{listing.payoutAmount !== null && <p className="muted">К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
-          </div>
-          <div className="button-row">{listing.listingStatus === 'AwaitingDelivery' && <><button className="button button-small" onClick={() => void listingAction(listing.id, 'delivery')}>Передал в доставку</button><button className="button-quiet" onClick={() => void listingAction(listing.id, 'cancel')}>Отменить заявку</button></>}</div>
-        </article>)}</div>}
+        {listings.length === 0 ? <div className="empty-state"><span>＋</span><h3>Заявок пока нет</h3><p>Подайте заявку, чтобы предложить вещь магазину.</p><button className="button" onClick={() => navigateTo('new-listing', 'listings/new')}>Подать заявку</button></div> : <div className="listing-groups">{listingGroups.filter((group) => group.items.length > 0).map((group) => <section className="listing-group" key={group.title}>
+          <h2>{group.title}</h2><div className="listing-list">{group.items.map((listing) => <article className="listing-row" key={listing.id} onClick={() => openListingDetails(listing)}>
+            <button className="listing-card-content" type="button" aria-label={`Подробности товара: ${listing.title}`} onClick={(event) => { event.stopPropagation(); openListingDetails(listing) }}>
+            <div className="listing-photo">{listing.photos[0] ? <img src={listing.photos[0].thumbnailUrl ?? listing.photos[0].url} alt={listing.title} /> : <span className="product-symbol">✳</span>}</div>
+            <div className="listing-info"><span className="badge">{listingLabels[listing.listingStatus] ?? listing.listingStatus}</span><h3 title={listing.title}>{listing.title}</h3><p title={`${listing.store} · ${formatMoney(listing.askingPrice, listing.currency)}`}>{listing.store} · {formatMoney(listing.askingPrice, listing.currency)}</p>
+              {listing.reservedUntil && <p className="muted" title={`Бронь до ${formatDate(listing.reservedUntil, listing.timeZoneId)}`}>Бронь до {formatDate(listing.reservedUntil, listing.timeZoneId)}</p>}
+              {listing.arrivalAt && <p className="muted" title={`Прибытие на осмотр ${formatDate(listing.arrivalAt, listing.timeZoneId)}`}>Прибытие на осмотр {formatDate(listing.arrivalAt, listing.timeZoneId)} ({formatRelativeArrival(listing.arrivalAt, relativeClock)})</p>}
+              {listing.payoutAmount !== null && <p className="muted" title={`К выплате: ${formatMoney(listing.payoutAmount, listing.currency)} · ${listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}`}>К выплате: {formatMoney(listing.payoutAmount, listing.currency)} · {listing.payoutStatus === 'Paid' ? 'выплачено' : 'ожидает выплаты'}</p>}
+            </div>
+            </button>
+            <div className="listing-actions">{listing.listingStatus === 'AwaitingDelivery' && <><button className="button button-small" onClick={(event) => { event.stopPropagation(); void listingAction(listing.id, 'delivery') }}>Передал в доставку</button><button className="button-quiet" onClick={(event) => { event.stopPropagation(); void listingAction(listing.id, 'cancel') }}>Отменить заявку</button></>}</div>
+          </article>)}</div>
+        </section>)}</div>}
       </section>}
 
       {view === 'new-listing' && <section className="narrow-section"><p className="eyebrow">Предложить вещь</p><h1>Заявка на комиссию</h1><form className="panel form-stack" onSubmit={createListing} onInvalidCapture={handleInvalidField} onInputCapture={handleFormInput} onChangeCapture={handleFormInput}>
